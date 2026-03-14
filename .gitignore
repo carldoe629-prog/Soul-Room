@@ -1,0 +1,27 @@
+# Claude Code session data
+.claude/
+
+# Debug/build artifacts
+debug1/
+debug3/
+debug1.zip
+soul-room-app.apk
+soul-room-app/temp_apk_extract/
+soul-room-app/temp_apk3_extract/
+
+# Next.js
+soul-room-app/.next/
+soul-room-app/out/
+soul-room-app/node_modules/
+
+# Android build outputs (keep source, ignore build)
+soul-room-app/android/.gradle/
+soul-room-app/android/app/build/
+soul-room-app/android/build/
+
+# Env files
+soul-room-app/.env*
+
+# Misc
+.DS_Store
+*.pem
