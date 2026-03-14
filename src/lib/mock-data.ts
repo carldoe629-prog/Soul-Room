@@ -414,78 +414,108 @@ export const INTEREST_TAGS: InterestTag[] = [
   { id: 'i30', tag: 'Nightlife', emoji: '🌃', category: 'Lifestyle' },
 ];
 
-// ===== SUBSCRIPTION TIERS (Revised) =====
+// ===== SUBSCRIPTION TIERS (Definitive) =====
 export const SUBSCRIPTION_TIERS = [
   {
     id: 'free', name: 'Free', price: 0, annualPrice: 0, badge: '', color: '#6B6B8A',
-    sayHiFreePerDay: 3, sayHiVpCost: 200, strangerReplyCost: 50, monthlyVpBonus: 0,
+    dailySparks: 1, aiMessagesPerDay: 10, monthlyVpBonus: 0, xpMultiplier: 1,
+    readReceiptsOutgoing: 'pay', // 'pay' | 'limited' | 'unlimited'
+    readReceiptsFreePerDay: 0, readReceiptVpCost: 100,
+    revealLikes: 'pay', // 'pay' | 'unlimited'
+    companionMemory: false,
+    deleteWindow: '24 hours', editWindow: '15 minutes',
+    rewardedAds: true,
+    feedPriority: 'none', // 'none' | 'slight' | 'strong' | 'strongest'
+    sayHiDiscount: 0, boostDiscount: 0,
     features: [
-      { text: '3 Say Hi / day', included: true },
-      { text: 'Stranger reply: 50 VP', included: true },
-      { text: '1 Spark round/day', included: true },
-      { text: 'Chat (connections): FREE', included: true },
-      { text: '5 min voice/day', included: true },
-      { text: 'Video calls', included: false },
-      { text: 'Speak in rooms', included: false },
-      { text: 'See who liked you', included: false },
-      { text: 'Translation', included: false },
-      { text: 'Invisible mode', included: false },
-      { text: 'Join 3 Worlds', included: true },
-      { text: 'Contains ads', included: true },
+      { text: '1 Daily Spark', included: true },
+      { text: '10 AI Companion messages/day', included: true },
+      { text: 'Read receipts: 100 VP each', included: true },
+      { text: 'Delete messages: 24 hours', included: true },
+      { text: 'Edit messages: 15 minutes', included: true },
+      { text: 'Rewarded ads for AI extension', included: true },
+      { text: 'Companion Memory', included: false },
+      { text: 'Reveal who liked you', included: false },
+      { text: 'Feed priority boost', included: false },
+      { text: 'Say Hi discount', included: false },
     ],
   },
   {
     id: 'plus', name: 'Spark Plus', price: 7.99, annualPrice: 5.99, badge: '⭐', color: '#FFB84B',
-    sayHiFreePerDay: 15, sayHiVpCost: 100, strangerReplyCost: 20, monthlyVpBonus: 3000,
+    dailySparks: 5, aiMessagesPerDay: 50, monthlyVpBonus: 2000, xpMultiplier: 1.2,
+    readReceiptsOutgoing: 'limited',
+    readReceiptsFreePerDay: 5, readReceiptVpCost: 100,
+    revealLikes: 'pay',
+    companionMemory: false,
+    deleteWindow: '72 hours', editWindow: '60 minutes',
+    rewardedAds: false,
+    feedPriority: 'slight',
+    sayHiDiscount: 0, boostDiscount: 0,
     features: [
-      { text: '15 Say Hi / day', included: true },
-      { text: 'Stranger reply: 20 VP', included: true },
-      { text: '5 Spark rounds/day', included: true },
-      { text: 'Chat (connections): FREE', included: true },
-      { text: '60 min voice / 15 min video', included: true },
-      { text: 'Speak in rooms', included: true },
-      { text: 'See who liked you', included: true },
-      { text: 'Read receipts', included: true },
-      { text: 'Advanced search filters', included: true },
-      { text: 'Join ALL Worlds', included: true },
-      { text: 'No ads + 3,000 VP/mo', included: true },
-      { text: 'Invisible mode', included: false },
+      { text: '5 Daily Sparks', included: true },
+      { text: '50 AI Companion messages/day', included: true },
+      { text: '2,000 VP monthly bonus', included: true },
+      { text: '1.2x XP multiplier', included: true },
+      { text: '5 free read receipts/day', included: true },
+      { text: 'Delete messages: 72 hours', included: true },
+      { text: 'Edit messages: 60 minutes', included: true },
+      { text: 'No ads', included: true },
+      { text: 'Slight feed priority boost', included: true },
+      { text: 'Companion Memory', included: false },
+      { text: 'Reveal who liked you', included: false },
+      { text: 'Say Hi / Boost discounts', included: false },
     ],
   },
   {
     id: 'premium', name: 'Spark Premium', price: 19.99, annualPrice: 14.99, badge: '💎', color: '#8B5CF6',
-    sayHiFreePerDay: 50, sayHiVpCost: 50, strangerReplyCost: 0, monthlyVpBonus: 7000,
+    dailySparks: Infinity, aiMessagesPerDay: Infinity, monthlyVpBonus: 5000, xpMultiplier: 1.5,
+    readReceiptsOutgoing: 'unlimited',
+    readReceiptsFreePerDay: Infinity, readReceiptVpCost: 0,
+    revealLikes: 'unlimited',
+    companionMemory: true,
+    deleteWindow: '7 days', editWindow: '6 hours',
+    rewardedAds: false,
+    feedPriority: 'strong',
+    sayHiDiscount: 10, boostDiscount: 15,
     features: [
-      { text: '50 Say Hi / day', included: true },
-      { text: 'Stranger messaging: FREE', included: true },
       { text: 'Unlimited Sparks', included: true },
-      { text: 'Chat (connections): FREE', included: true },
-      { text: 'Unlimited voice / 60 min video', included: true },
-      { text: 'Real-time translation', included: true },
-      { text: 'Private rooms + Host events', included: true },
-      { text: 'Invisible mode', included: true },
-      { text: 'Undo accidental Pass', included: true },
-      { text: '1 free Boost/week', included: true },
-      { text: 'Join ALL Worlds', included: true },
-      { text: 'No ads + 7,000 VP/mo', included: true },
+      { text: 'Unlimited AI Companion messages', included: true },
+      { text: '5,000 VP monthly bonus', included: true },
+      { text: '1.5x XP multiplier', included: true },
+      { text: 'Unlimited read receipts', included: true },
+      { text: 'Reveal who liked you', included: true },
+      { text: 'Companion Memory', included: true },
+      { text: 'Delete messages: 7 days', included: true },
+      { text: 'Edit messages: 6 hours', included: true },
+      { text: 'Strong feed priority boost', included: true },
+      { text: '10% Say Hi discount', included: true },
+      { text: '15% Profile Boost discount', included: true },
     ],
   },
   {
     id: 'vip', name: 'Spark VIP', price: 39.99, annualPrice: 29.99, badge: '👑', color: '#FF4B6E',
-    sayHiFreePerDay: Infinity, sayHiVpCost: 0, strangerReplyCost: 0, monthlyVpBonus: 15000,
+    dailySparks: Infinity, aiMessagesPerDay: Infinity, monthlyVpBonus: 10000, xpMultiplier: 2,
+    readReceiptsOutgoing: 'unlimited',
+    readReceiptsFreePerDay: Infinity, readReceiptVpCost: 0,
+    revealLikes: 'unlimited',
+    companionMemory: true,
+    deleteWindow: '30 days', editWindow: 'Unlimited',
+    rewardedAds: false,
+    feedPriority: 'strongest',
+    sayHiDiscount: 20, boostDiscount: 25,
     features: [
-      { text: 'Unlimited Say Hi (FREE)', included: true },
-      { text: 'DM anyone without match', included: true },
-      { text: 'Unlimited everything', included: true },
-      { text: 'Chat (connections): FREE', included: true },
-      { text: 'Unlimited voice + video', included: true },
-      { text: 'AI matchmaking concierge', included: true },
-      { text: 'VIP rooms & events', included: true },
-      { text: 'See profile viewers', included: true },
-      { text: '3 free Boosts/week', included: true },
-      { text: 'Gold highlighted profile', included: true },
-      { text: 'Join ALL Worlds', included: true },
-      { text: 'No ads + 15,000 VP/mo', included: true },
+      { text: 'Unlimited Sparks', included: true },
+      { text: 'Unlimited AI Companion messages', included: true },
+      { text: '10,000 VP monthly bonus', included: true },
+      { text: '2x XP multiplier', included: true },
+      { text: 'Unlimited read receipts', included: true },
+      { text: 'Reveal who liked you', included: true },
+      { text: 'Companion Memory', included: true },
+      { text: 'Delete messages: 30 days', included: true },
+      { text: 'Edit messages: Unlimited', included: true },
+      { text: 'Strongest feed priority boost', included: true },
+      { text: '20% Say Hi discount', included: true },
+      { text: '25% Profile Boost discount', included: true },
     ],
   },
 ];
@@ -641,7 +671,7 @@ export const MOCK_POPULARITY: PopularityStats = {
   changeFromLastWeek: 23,
 };
 
-// ===== VIP LEVEL SYSTEM =====
+// ===== VIP LEVEL SYSTEM (Definitive) =====
 export interface VipLevel {
   level: number;
   name: string;
@@ -649,22 +679,29 @@ export interface VipLevel {
   xpRequired: number;
   monthlyMaintenanceXp: number;
   levelUpVpBonus: number;
-  extraSayHiPerDay: number | 'unlimited';
-  vpDiscount: number; // percent
-  giftEarnBonus: number; // added to base 30%
-  freeBoostsPerWeek: number;
-  freeSpotlightsPerMonth: number;
-  maxPinnedConvos: number;
-  inboxCapBonus: number;
+  giftEarningRate: number; // percent (30-45)
+  // Identity & Privacy privilege unlocks
+  hasCustomBorderColor: boolean;
+  hasExtendedSparkCall: boolean; // 10 min, purchaseable
+  hasHideLastSeen: boolean;
+  hasGhostMode: boolean;
   hasEntranceAnimation: boolean;
-  hasNameColor: boolean;
-  hasChatThemes: boolean;
-  hasVoiceEffects: boolean;
-  canCreateRoomsFree: boolean;
-  hasReadReceipts: boolean;
-  hasExclusiveWorld: boolean;
-  hasBetaAccess: boolean;
+  hasReadReceiptControl: boolean; // incoming — hide that you read
+  hasPlatinumRooms: boolean;
+  hasInvisibleBrowsing: boolean;
+  hasDiamondEntrance: boolean;
+  hasWorldCreation: boolean;
+  reducedSafeExitTollVp: number | null; // null = standard 2500, or reduced amount
+  hasConcierge: boolean;
+  hasPriorityMatchmaking: boolean;
+  hasLegendaryFrame: boolean;
+  hasCoHosting: boolean;
+  hasIncognitoSpark: boolean;
+  hasUnlimitedWorlds: boolean;
+  hasCustomAnimation: boolean; // profile animation
+  hasGlobalLeaderboard: boolean;
   tagline: string;
+  keyPrivilege: string; // one-line summary shown in UI cards
 }
 
 export interface UserVipStatus {
@@ -680,16 +717,129 @@ export interface UserVipStatus {
 }
 
 export const VIP_LEVELS: VipLevel[] = [
-  { level: 0, name: 'Newcomer', badge: '', xpRequired: 0, monthlyMaintenanceXp: 0, levelUpVpBonus: 0, extraSayHiPerDay: 0, vpDiscount: 0, giftEarnBonus: 0, freeBoostsPerWeek: 0, freeSpotlightsPerMonth: 0, maxPinnedConvos: 3, inboxCapBonus: 0, hasEntranceAnimation: false, hasNameColor: false, hasChatThemes: false, hasVoiceEffects: false, canCreateRoomsFree: false, hasReadReceipts: false, hasExclusiveWorld: false, hasBetaAccess: false, tagline: 'Welcome! Start connecting to level up.' },
-  { level: 1, name: 'Bronze', badge: '🥉', xpRequired: 1000, monthlyMaintenanceXp: 200, levelUpVpBonus: 500, extraSayHiPerDay: 1, vpDiscount: 5, giftEarnBonus: 0, freeBoostsPerWeek: 0, freeSpotlightsPerMonth: 0, maxPinnedConvos: 3, inboxCapBonus: 0, hasEntranceAnimation: false, hasNameColor: false, hasChatThemes: false, hasVoiceEffects: false, canCreateRoomsFree: false, hasReadReceipts: false, hasExclusiveWorld: false, hasBetaAccess: false, tagline: "You're getting started! Welcome to the community." },
-  { level: 2, name: 'Silver', badge: '🥈', xpRequired: 5000, monthlyMaintenanceXp: 500, levelUpVpBonus: 2000, extraSayHiPerDay: 3, vpDiscount: 8, giftEarnBonus: 0, freeBoostsPerWeek: 0, freeSpotlightsPerMonth: 0, maxPinnedConvos: 5, inboxCapBonus: 0, hasEntranceAnimation: false, hasNameColor: false, hasChatThemes: true, hasVoiceEffects: true, canCreateRoomsFree: false, hasReadReceipts: false, hasExclusiveWorld: false, hasBetaAccess: false, tagline: 'People are noticing you. Keep going!' },
-  { level: 3, name: 'Gold', badge: '🥇', xpRequired: 15000, monthlyMaintenanceXp: 1000, levelUpVpBonus: 5000, extraSayHiPerDay: 6, vpDiscount: 10, giftEarnBonus: 0, freeBoostsPerWeek: 1, freeSpotlightsPerMonth: 0, maxPinnedConvos: 5, inboxCapBonus: 20, hasEntranceAnimation: true, hasNameColor: true, hasChatThemes: true, hasVoiceEffects: true, canCreateRoomsFree: true, hasReadReceipts: false, hasExclusiveWorld: false, hasBetaAccess: false, tagline: "You're a valued member of Soul Room!" },
-  { level: 4, name: 'Platinum', badge: '💠', xpRequired: 40000, monthlyMaintenanceXp: 2000, levelUpVpBonus: 10000, extraSayHiPerDay: 11, vpDiscount: 12, giftEarnBonus: 2, freeBoostsPerWeek: 2, freeSpotlightsPerMonth: 1, maxPinnedConvos: 7, inboxCapBonus: 40, hasEntranceAnimation: true, hasNameColor: true, hasChatThemes: true, hasVoiceEffects: true, canCreateRoomsFree: true, hasReadReceipts: false, hasExclusiveWorld: true, hasBetaAccess: false, tagline: "You're in the top tier. People respect you here." },
-  { level: 5, name: 'Diamond', badge: '💎', xpRequired: 100000, monthlyMaintenanceXp: 3500, levelUpVpBonus: 25000, extraSayHiPerDay: 21, vpDiscount: 15, giftEarnBonus: 5, freeBoostsPerWeek: 3, freeSpotlightsPerMonth: 2, maxPinnedConvos: 10, inboxCapBonus: 60, hasEntranceAnimation: true, hasNameColor: true, hasChatThemes: true, hasVoiceEffects: true, canCreateRoomsFree: true, hasReadReceipts: true, hasExclusiveWorld: true, hasBetaAccess: false, tagline: "You're Diamond elite. The community knows you." },
-  { level: 6, name: 'Royal', badge: '👑', xpRequired: 250000, monthlyMaintenanceXp: 5000, levelUpVpBonus: 50000, extraSayHiPerDay: 'unlimited', vpDiscount: 18, giftEarnBonus: 7, freeBoostsPerWeek: 5, freeSpotlightsPerMonth: 4, maxPinnedConvos: 999, inboxCapBonus: 80, hasEntranceAnimation: true, hasNameColor: true, hasChatThemes: true, hasVoiceEffects: true, canCreateRoomsFree: true, hasReadReceipts: true, hasExclusiveWorld: true, hasBetaAccess: true, tagline: "You're royalty. Soul Room is your kingdom." },
-  { level: 7, name: 'Legendary', badge: '🌟', xpRequired: 500000, monthlyMaintenanceXp: 8000, levelUpVpBonus: 100000, extraSayHiPerDay: 'unlimited', vpDiscount: 20, giftEarnBonus: 9, freeBoostsPerWeek: 7, freeSpotlightsPerMonth: 6, maxPinnedConvos: 999, inboxCapBonus: 100, hasEntranceAnimation: true, hasNameColor: true, hasChatThemes: true, hasVoiceEffects: true, canCreateRoomsFree: true, hasReadReceipts: true, hasExclusiveWorld: true, hasBetaAccess: true, tagline:  "You are a Legend. Soul Room wouldn't be the same without you." },
-  { level: 8, name: 'Mythic', badge: '💫', xpRequired: 1000000, monthlyMaintenanceXp: 12000, levelUpVpBonus: 250000, extraSayHiPerDay: 'unlimited', vpDiscount: 25, giftEarnBonus: 12, freeBoostsPerWeek: 10, freeSpotlightsPerMonth: 10, maxPinnedConvos: 999, inboxCapBonus: 100, hasEntranceAnimation: true, hasNameColor: true, hasChatThemes: true, hasVoiceEffects: true, canCreateRoomsFree: true, hasReadReceipts: true, hasExclusiveWorld: true, hasBetaAccess: true, tagline: 'You have transcended. You ARE Soul Room.' },
+  {
+    level: 0, name: 'Newcomer', badge: '', xpRequired: 0, monthlyMaintenanceXp: 0,
+    levelUpVpBonus: 0, giftEarningRate: 30,
+    hasCustomBorderColor: false, hasExtendedSparkCall: false, hasHideLastSeen: false,
+    hasGhostMode: false, hasEntranceAnimation: false, hasReadReceiptControl: false,
+    hasPlatinumRooms: false, hasInvisibleBrowsing: false, hasDiamondEntrance: false,
+    hasWorldCreation: false, reducedSafeExitTollVp: null, hasConcierge: false,
+    hasPriorityMatchmaking: false, hasLegendaryFrame: false, hasCoHosting: false,
+    hasIncognitoSpark: false, hasUnlimitedWorlds: false, hasCustomAnimation: false,
+    hasGlobalLeaderboard: false,
+    tagline: 'Welcome! Start connecting to level up.',
+    keyPrivilege: 'Basic profile, standard badge',
+  },
+  {
+    level: 1, name: 'Bronze', badge: '🥉', xpRequired: 1000, monthlyMaintenanceXp: 200,
+    levelUpVpBonus: 500, giftEarningRate: 31,
+    hasCustomBorderColor: true, hasExtendedSparkCall: true, hasHideLastSeen: false,
+    hasGhostMode: false, hasEntranceAnimation: false, hasReadReceiptControl: false,
+    hasPlatinumRooms: false, hasInvisibleBrowsing: false, hasDiamondEntrance: false,
+    hasWorldCreation: false, reducedSafeExitTollVp: null, hasConcierge: false,
+    hasPriorityMatchmaking: false, hasLegendaryFrame: false, hasCoHosting: false,
+    hasIncognitoSpark: false, hasUnlimitedWorlds: false, hasCustomAnimation: false,
+    hasGlobalLeaderboard: false,
+    tagline: "You're getting started! Welcome to the community.",
+    keyPrivilege: 'Custom border colour. 10-min Spark call.',
+  },
+  {
+    level: 2, name: 'Silver', badge: '🥈', xpRequired: 5000, monthlyMaintenanceXp: 500,
+    levelUpVpBonus: 2000, giftEarningRate: 32,
+    hasCustomBorderColor: true, hasExtendedSparkCall: true, hasHideLastSeen: true,
+    hasGhostMode: false, hasEntranceAnimation: false, hasReadReceiptControl: false,
+    hasPlatinumRooms: false, hasInvisibleBrowsing: false, hasDiamondEntrance: false,
+    hasWorldCreation: false, reducedSafeExitTollVp: null, hasConcierge: false,
+    hasPriorityMatchmaking: false, hasLegendaryFrame: false, hasCoHosting: false,
+    hasIncognitoSpark: false, hasUnlimitedWorlds: false, hasCustomAnimation: false,
+    hasGlobalLeaderboard: false,
+    tagline: 'People are noticing you. Keep going!',
+    keyPrivilege: 'Hide Last Seen. Gift rate 32%. Speaker queue priority.',
+  },
+  {
+    level: 3, name: 'Gold', badge: '🥇', xpRequired: 15000, monthlyMaintenanceXp: 1000,
+    levelUpVpBonus: 5000, giftEarningRate: 33,
+    hasCustomBorderColor: true, hasExtendedSparkCall: true, hasHideLastSeen: true,
+    hasGhostMode: true, hasEntranceAnimation: true, hasReadReceiptControl: false,
+    hasPlatinumRooms: false, hasInvisibleBrowsing: false, hasDiamondEntrance: false,
+    hasWorldCreation: false, reducedSafeExitTollVp: null, hasConcierge: false,
+    hasPriorityMatchmaking: false, hasLegendaryFrame: false, hasCoHosting: false,
+    hasIncognitoSpark: false, hasUnlimitedWorlds: false, hasCustomAnimation: false,
+    hasGlobalLeaderboard: false,
+    tagline: "You're a valued member of Soul Room!",
+    keyPrivilege: 'Ghost Mode. Entrance animation. Gold badge.',
+  },
+  {
+    level: 4, name: 'Platinum', badge: '💠', xpRequired: 40000, monthlyMaintenanceXp: 2000,
+    levelUpVpBonus: 10000, giftEarningRate: 34,
+    hasCustomBorderColor: true, hasExtendedSparkCall: true, hasHideLastSeen: true,
+    hasGhostMode: true, hasEntranceAnimation: true, hasReadReceiptControl: true,
+    hasPlatinumRooms: true, hasInvisibleBrowsing: false, hasDiamondEntrance: false,
+    hasWorldCreation: false, reducedSafeExitTollVp: null, hasConcierge: false,
+    hasPriorityMatchmaking: false, hasLegendaryFrame: false, hasCoHosting: false,
+    hasIncognitoSpark: false, hasUnlimitedWorlds: false, hasCustomAnimation: false,
+    hasGlobalLeaderboard: false,
+    tagline: "You're in the top tier. People respect you here.",
+    keyPrivilege: 'Read Receipt Control. Platinum-only rooms.',
+  },
+  {
+    level: 5, name: 'Diamond', badge: '💎', xpRequired: 100000, monthlyMaintenanceXp: 3500,
+    levelUpVpBonus: 25000, giftEarningRate: 36,
+    hasCustomBorderColor: true, hasExtendedSparkCall: true, hasHideLastSeen: true,
+    hasGhostMode: true, hasEntranceAnimation: true, hasReadReceiptControl: true,
+    hasPlatinumRooms: true, hasInvisibleBrowsing: true, hasDiamondEntrance: true,
+    hasWorldCreation: false, reducedSafeExitTollVp: null, hasConcierge: false,
+    hasPriorityMatchmaking: false, hasLegendaryFrame: false, hasCoHosting: false,
+    hasIncognitoSpark: false, hasUnlimitedWorlds: false, hasCustomAnimation: false,
+    hasGlobalLeaderboard: false,
+    tagline: "You're Diamond elite. The community knows you.",
+    keyPrivilege: 'Invisible Browsing. Gift rate 36%. Diamond entrance.',
+  },
+  {
+    level: 6, name: 'Royal', badge: '👑', xpRequired: 250000, monthlyMaintenanceXp: 5000,
+    levelUpVpBonus: 50000, giftEarningRate: 40,
+    hasCustomBorderColor: true, hasExtendedSparkCall: true, hasHideLastSeen: true,
+    hasGhostMode: true, hasEntranceAnimation: true, hasReadReceiptControl: true,
+    hasPlatinumRooms: true, hasInvisibleBrowsing: true, hasDiamondEntrance: true,
+    hasWorldCreation: true, reducedSafeExitTollVp: 1500, hasConcierge: true,
+    hasPriorityMatchmaking: false, hasLegendaryFrame: false, hasCoHosting: false,
+    hasIncognitoSpark: false, hasUnlimitedWorlds: false, hasCustomAnimation: false,
+    hasGlobalLeaderboard: false,
+    tagline: "You're royalty. Soul Room is your kingdom.",
+    keyPrivilege: 'World Creation. Reduced Exit Toll. Concierge.',
+  },
+  {
+    level: 7, name: 'Legendary', badge: '🌟', xpRequired: 500000, monthlyMaintenanceXp: 8000,
+    levelUpVpBonus: 100000, giftEarningRate: 42,
+    hasCustomBorderColor: true, hasExtendedSparkCall: true, hasHideLastSeen: true,
+    hasGhostMode: true, hasEntranceAnimation: true, hasReadReceiptControl: true,
+    hasPlatinumRooms: true, hasInvisibleBrowsing: true, hasDiamondEntrance: true,
+    hasWorldCreation: true, reducedSafeExitTollVp: 1500, hasConcierge: true,
+    hasPriorityMatchmaking: true, hasLegendaryFrame: true, hasCoHosting: true,
+    hasIncognitoSpark: false, hasUnlimitedWorlds: false, hasCustomAnimation: false,
+    hasGlobalLeaderboard: false,
+    tagline: "You are a Legend. Soul Room wouldn't be the same without you.",
+    keyPrivilege: 'Priority Matchmaking. Legendary frame. Co-hosting.',
+  },
+  {
+    level: 8, name: 'Mythic', badge: '💫', xpRequired: 1000000, monthlyMaintenanceXp: 12000,
+    levelUpVpBonus: 250000, giftEarningRate: 45,
+    hasCustomBorderColor: true, hasExtendedSparkCall: true, hasHideLastSeen: true,
+    hasGhostMode: true, hasEntranceAnimation: true, hasReadReceiptControl: true,
+    hasPlatinumRooms: true, hasInvisibleBrowsing: true, hasDiamondEntrance: true,
+    hasWorldCreation: true, reducedSafeExitTollVp: 1500, hasConcierge: true,
+    hasPriorityMatchmaking: true, hasLegendaryFrame: true, hasCoHosting: true,
+    hasIncognitoSpark: true, hasUnlimitedWorlds: true, hasCustomAnimation: true,
+    hasGlobalLeaderboard: true,
+    tagline: 'You have transcended. You ARE Soul Room.',
+    keyPrivilege: 'Incognito Spark. Unlimited Worlds. Global leaderboard.',
+  },
 ];
+
+// ===== GIFT EARNING RATE LOOKUP =====
+export function getGiftEarningRate(vipLevel: number): number {
+  return (VIP_LEVELS[vipLevel] || VIP_LEVELS[0]).giftEarningRate;
+}
 
 // ===== CURRENT USER VIP STATUS =====
 export const CURRENT_USER_VIP: UserVipStatus = {

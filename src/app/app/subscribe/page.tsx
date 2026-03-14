@@ -2,46 +2,40 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { SUBSCRIPTION_TIERS, CURRENT_USER, formatNumber } from '@/lib/mock-data';
+import { useAuth } from '@/hooks/useAuth';
+import { SUBSCRIPTION_TIERS, formatNumber } from '@/lib/mock-data';
 
 export default function SubscribePage() {
+  const { profile } = useAuth();
   const [billing, setBilling] = useState<'monthly' | 'annual'>('monthly');
 
+  const currentTier = profile?.subscription_tier ?? 'free';
+
   const comparisonRows = [
-    { feature: 'Browse homepage feed', free: '✅', plus: '✅', premium: '✅', vip: '✅' },
-    { feature: 'Free "Say Hi" / day', free: '3', plus: '15', premium: '50', vip: '∞' },
-    { feature: 'Say Hi VP cost', free: '200', plus: '100', premium: '50', vip: 'FREE' },
-    { feature: 'Stranger reply cost', free: '50 VP', plus: '20 VP', premium: 'FREE', vip: 'FREE' },
-    { feature: 'Chat (connections)', free: 'FREE', plus: 'FREE', premium: 'FREE', vip: 'FREE' },
-    { feature: 'Spark rounds / day', free: '1', plus: '5', premium: '∞', vip: '∞' },
-    { feature: 'Voice min / day', free: '5', plus: '60', premium: '∞', vip: '∞' },
-    { feature: 'Video min / day', free: '0', plus: '15', premium: '60', vip: '∞' },
-    { feature: 'Speak in rooms', free: '❌', plus: '✅', premium: '✅', vip: '✅' },
-    { feature: 'See who liked you', free: '❌', plus: '✅', premium: '✅', vip: '✅' },
-    { feature: 'Who viewed profile', free: '❌', plus: '❌', premium: '❌', vip: '✅' },
-    { feature: 'DM without match', free: '❌', plus: '❌', premium: '❌', vip: '✅' },
-    { feature: 'Translation', free: '❌', plus: '❌', premium: '✅', vip: '✅' },
-    { feature: 'Private rooms', free: '❌', plus: '❌', premium: '✅', vip: '✅' },
-    { feature: 'Host events', free: '❌', plus: '❌', premium: '✅', vip: '✅' },
-    { feature: 'Invisible mode', free: '❌', plus: '❌', premium: '✅', vip: '✅' },
-    { feature: 'Undo Pass', free: '❌', plus: '❌', premium: '✅', vip: '✅' },
-    { feature: 'Read receipts', free: '❌', plus: '✅', premium: '✅', vip: '✅' },
-    { feature: 'Free Boosts / week', free: '0', plus: '0', premium: '1', vip: '3' },
-    { feature: 'Ads', free: '✅', plus: '❌', premium: '❌', vip: '❌' },
-    { feature: 'Worlds joined', free: '3', plus: 'All', premium: 'All', vip: 'All' },
-    { feature: 'Monthly VP bonus', free: '0', plus: '3,000', premium: '7,000', vip: '15,000' },
-    { feature: 'Badge', free: '—', plus: '⭐', premium: '💎', vip: '👑' },
+    { feature: 'Daily Sparks', free: '1', plus: '5', premium: '∞', vip: '∞' },
+    { feature: 'AI Companion messages/day', free: '10', plus: '50', premium: '∞', vip: '∞' },
+    { feature: 'Monthly VP bonus', free: '0', plus: '2,000', premium: '5,000', vip: '10,000' },
+    { feature: 'XP multiplier', free: '1x', plus: '1.2x', premium: '1.5x', vip: '2x' },
+    { feature: 'Read receipts (outgoing)', free: '100 VP ea', plus: '5 free/day', premium: '✅ Free', vip: '✅ Free' },
+    { feature: 'Reveal who liked you', free: 'Pay VP', plus: 'Pay VP', premium: '✅ Free', vip: '✅ Free' },
+    { feature: 'Companion Memory', free: '❌', plus: '❌', premium: '✅', vip: '✅' },
+    { feature: 'Delete message window', free: '24h', plus: '72h', premium: '7 days', vip: '30 days' },
+    { feature: 'Edit message window', free: '15 min', plus: '60 min', premium: '6 hours', vip: '∞' },
+    { feature: 'Rewarded ads (AI ext.)', free: '✅', plus: '❌', premium: '❌', vip: '❌' },
+    { feature: 'Feed priority', free: '—', plus: 'Slight', premium: 'Strong', vip: 'Strongest' },
+    { feature: 'Say Hi discount', free: '0%', plus: '0%', premium: '10%', vip: '20%' },
+    { feature: 'Profile Boost discount', free: '0%', plus: '0%', premium: '15%', vip: '25%' },
   ];
 
   return (
-    <div className="py-4 px-4 animate-fade-in">
+    <div className="py-4 px-4 animate-fade-in font-[Outfit]">
       {/* Header */}
       <div className="text-center mb-6">
-        <h1 className="text-2xl font-bold text-text-primary font-[Outfit]">Upgrade Your Experience</h1>
+        <h1 className="text-2xl font-bold text-text-primary">Upgrade Your Experience</h1>
         <p className="text-sm text-text-secondary mt-1">Connect more. Spend less. Stand out.</p>
-        {CURRENT_USER.subscriptionTier !== 'free' && (
+        {currentTier !== 'free' && (
           <div className="mt-2 text-xs text-vibe font-medium">
-            Current plan: {SUBSCRIPTION_TIERS.find(t => t.id === CURRENT_USER.subscriptionTier)?.name}
+            Current plan: {SUBSCRIPTION_TIERS.find(t => t.id === currentTier)?.name ?? currentTier}
           </div>
         )}
       </div>
@@ -72,15 +66,25 @@ export default function SubscribePage() {
         {SUBSCRIPTION_TIERS.filter(t => t.id !== 'free').map(tier => {
           const price = billing === 'monthly' ? tier.price : tier.annualPrice;
           const isPopular = tier.id === 'premium';
+          const isCurrent = tier.id === currentTier;
 
           return (
             <div
               key={tier.id}
               className={`relative p-5 rounded-3xl transition-all ${
-                isPopular ? 'glass border-2 border-soul-500/30 glow-soul' : 'glass'
+                isCurrent
+                  ? 'glass border-2 border-vibe/40'
+                  : isPopular
+                  ? 'glass border-2 border-soul-500/30 glow-soul'
+                  : 'glass'
               }`}
             >
-              {isPopular && (
+              {isCurrent && (
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full bg-vibe/20 border border-vibe/40 text-[10px] font-bold text-vibe">
+                  CURRENT PLAN
+                </span>
+              )}
+              {!isCurrent && isPopular && (
                 <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 rounded-full gradient-soul text-[10px] font-bold text-white">
                   MOST POPULAR
                 </span>
@@ -107,10 +111,16 @@ export default function SubscribePage() {
               {/* Key highlights */}
               <div className="grid grid-cols-2 gap-2 mb-3">
                 <div className="text-[10px] px-2 py-1 rounded-lg bg-dark-500/50 text-text-secondary text-center">
-                  💬 {tier.sayHiFreePerDay === Infinity ? '∞' : tier.sayHiFreePerDay} Say Hi/day
+                  ⚡ {tier.dailySparks === Infinity ? '∞' : tier.dailySparks} Sparks/day
                 </div>
                 <div className="text-[10px] px-2 py-1 rounded-lg bg-dark-500/50 text-text-secondary text-center">
                   💎 {formatNumber(tier.monthlyVpBonus)} VP/mo
+                </div>
+                <div className="text-[10px] px-2 py-1 rounded-lg bg-dark-500/50 text-text-secondary text-center">
+                  🤖 {tier.aiMessagesPerDay === Infinity ? '∞' : tier.aiMessagesPerDay} AI msg/day
+                </div>
+                <div className="text-[10px] px-2 py-1 rounded-lg bg-dark-500/50 text-text-secondary text-center">
+                  📈 {tier.xpMultiplier}x XP
                 </div>
               </div>
 
@@ -131,14 +141,23 @@ export default function SubscribePage() {
                 ))}
               </ul>
 
-              <button className={`w-full py-3 rounded-2xl text-sm font-bold transition-all ${
-                isPopular
-                  ? 'gradient-soul text-white hover:opacity-90'
-                  : tier.id === 'vip'
-                  ? 'gradient-accent text-white hover:opacity-90'
-                  : 'bg-dark-500 text-text-primary hover:bg-dark-400'
-              }`}>
-                {billing === 'annual' ? `Subscribe — $${(price * 12).toFixed(0)}/year` : `Subscribe — $${price}/month`}
+              <button
+                disabled={isCurrent}
+                className={`w-full py-3 rounded-2xl text-sm font-bold transition-all ${
+                  isCurrent
+                    ? 'bg-dark-500 text-text-tertiary cursor-default'
+                    : isPopular
+                    ? 'gradient-soul text-white hover:opacity-90'
+                    : tier.id === 'vip'
+                    ? 'gradient-accent text-white hover:opacity-90'
+                    : 'bg-dark-500 text-text-primary hover:bg-dark-400'
+                }`}
+              >
+                {isCurrent
+                  ? 'Active'
+                  : billing === 'annual'
+                  ? `Subscribe — $${(price * 12).toFixed(0)}/year`
+                  : `Subscribe — $${price}/month`}
               </button>
             </div>
           );
@@ -146,10 +165,12 @@ export default function SubscribePage() {
       </div>
 
       {/* 7-Day Free Trial Banner */}
-      <div className="p-4 rounded-2xl bg-gradient-to-r from-accent-start/10 to-accent-end/10 border border-accent/20 text-center mb-8">
-        <div className="text-sm font-bold text-accent mb-1">🎉 Try 7 Days Free</div>
-        <div className="text-xs text-text-secondary">Cancel anytime during trial. No charge.</div>
-      </div>
+      {currentTier === 'free' && (
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-accent-start/10 to-accent-end/10 border border-accent/20 text-center mb-8">
+          <div className="text-sm font-bold text-accent mb-1">🎉 Try 7 Days Free</div>
+          <div className="text-xs text-text-secondary">Cancel anytime during trial. No charge.</div>
+        </div>
+      )}
 
       {/* Full Comparison Table */}
       <div className="mb-6">

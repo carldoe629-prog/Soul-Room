@@ -1,4 +1,5 @@
 import { createClient } from './supabase';
+import { getGiftEarningRate } from './mock-data';
 
 const supabase = createClient();
 
@@ -63,10 +64,10 @@ export async function fetchRooms(worldId?: string) {
   return data || [];
 }
 
-export async function createRoom(worldId: string, hostId: string, title: string) {
+export async function createRoom(worldId: string, hostId: string, title: string, hostName = '') {
   const { data, error } = await supabase
     .from('rooms')
-    .insert({ world_id: worldId, host_id: hostId, title, host_name: '', speaker_count: 1 })
+    .insert({ world_id: worldId, host_id: hostId, title, host_name: hostName, speaker_count: 1 })
     .select()
     .single();
   if (error) throw error;
@@ -95,6 +96,20 @@ export async function leaveRoom(roomId: string, userId: string) {
     .match({ room_id: roomId, user_id: userId });
 }
 
+export async function setParticipantMuted(roomId: string, userId: string, isMuted: boolean) {
+  await supabase
+    .from('room_participants')
+    .update({ is_muted: isMuted })
+    .match({ room_id: roomId, user_id: userId });
+}
+
+export async function promoteToSpeaker(roomId: string, userId: string) {
+  await supabase
+    .from('room_participants')
+    .update({ role: 'speaker', is_muted: false })
+    .match({ room_id: roomId, user_id: userId });
+}
+
 // ===== CONVERSATIONS =====
 
 export async function fetchConversations(userId: string) {
@@ -109,7 +124,7 @@ export async function fetchConversations(userId: string) {
     .eq('status', 'active')
     .order('last_message_at', { ascending: false });
   if (error) throw error;
-  return (data || []).map(c => ({
+  return (data || []).map((c: any) => ({
     ...c,
     otherUser: c.user_a === userId ? c.user_b_profile : c.user_a_profile,
     unreadCount: c.user_a === userId ? c.unread_count_a : c.unread_count_b,
@@ -195,7 +210,7 @@ export async function fetchSparkMatches(userId: string) {
     .eq('status', 'matched')
     .order('sparked_at', { ascending: false });
   if (error) throw error;
-  return (data || []).map(m => ({
+  return (data || []).map((m: any) => ({
     ...m,
     matchedUser: m.user_a === userId ? m.user_b_profile : m.user_a_profile,
   }));
@@ -330,15 +345,20 @@ export async function sendGift(senderId: string, receiverId: string, giftId: str
   // Deduct VP from sender
   await deductVP(senderId, vpAmount, 'gift_sent', 'Gift sent');
 
-  // Credit earnings to receiver
+  // Get receiver's VIP level for gift earning rate
+  const { data: receiver } = await supabase.from('users').select('vip_level').eq('id', receiverId).single();
+  const earningRate = getGiftEarningRate(receiver?.vip_level ?? 0);
+  const earnedVp = Math.round(vpAmount * (earningRate / 100));
+
+  // Credit earnings to receiver based on their VIP gift earning rate
   await supabase.from('user_earnings').upsert({
     user_id: receiverId,
-    balance_earned_vp: vpAmount,
-    total_lifetime_earned_vp: vpAmount,
+    balance_earned_vp: earnedVp,
+    total_lifetime_earned_vp: earnedVp,
   }, { onConflict: 'user_id' });
 
-  // Add XP to sender (VP spending = XP)
-  await addXP(senderId, vpAmount);
+  // Add XP to sender (gift VP spending = 1.5x XP)
+  await addXP(senderId, Math.round(vpAmount * 1.5));
 }
 
 export async function fetchVPTransactions(userId: string, limit = 20) {
@@ -362,7 +382,7 @@ export async function addXP(userId: string, xpAmount: number) {
   const newMonthlyXp = (user.monthly_xp || 0) + xpAmount;
 
   // Check for level up
-  const VIP_THRESHOLDS = [0, 1000, 5000, 10000, 40000, 100000, 250000, 500000, 1000000];
+  const VIP_THRESHOLDS = [0, 1000, 5000, 15000, 40000, 100000, 250000, 500000, 1000000];
   let newLevel = user.vip_level;
   for (let i = VIP_THRESHOLDS.length - 1; i >= 0; i--) {
     if (newTotalXp >= VIP_THRESHOLDS[i]) {
@@ -458,6 +478,55 @@ export async function fetchEarnings(userId: string) {
   return data || { balance_earned_vp: 0, total_lifetime_earned_vp: 0 };
 }
 
+// ===== CONVERSATION HELPERS =====
+
+/** Returns true if the two users in a conversation are not friends (stranger context). */
+export async function isStrangerConversation(conversationId: string, userId: string): Promise<boolean> {
+  const { data: conv } = await supabase
+    .from('conversations')
+    .select('user_a, user_b')
+    .eq('id', conversationId)
+    .single();
+  if (!conv) return false;
+  const otherId = conv.user_a === userId ? conv.user_b : conv.user_a;
+  const { count } = await supabase
+    .from('friendships')
+    .select('id', { count: 'exact', head: true })
+    .or(`and(user_id.eq.${userId},friend_id.eq.${otherId}),and(user_id.eq.${otherId},friend_id.eq.${userId})`)
+    .eq('status', 'accepted');
+  return (count ?? 0) === 0;
+}
+
+// ===== LEADERBOARD =====
+
+export async function fetchXPLeaderboard(filter: 'global' | 'city', city?: string | null, limit = 20) {
+  let query = supabase
+    .from('users')
+    .select('id, display_name, avatar_url, photos, total_xp, vip_level, city')
+    .order('total_xp', { ascending: false })
+    .limit(limit);
+  if (filter === 'city' && city) {
+    query = query.ilike('city', city);
+  }
+  const { data, error } = await query;
+  if (error) throw error;
+  return data || [];
+}
+
+export async function fetchUserXPRank(userId: string, filter: 'global' | 'city', city?: string | null): Promise<number> {
+  const { data: me } = await supabase.from('users').select('total_xp').eq('id', userId).single();
+  if (!me) return 0;
+  let query = supabase
+    .from('users')
+    .select('id', { count: 'exact', head: true })
+    .gt('total_xp', me.total_xp);
+  if (filter === 'city' && city) {
+    query = query.ilike('city', city);
+  }
+  const { count } = await query;
+  return (count ?? 0) + 1;
+}
+
 // ===== BLOCKS & REPORTS =====
 
 export async function blockUser(blockerId: string, blockedId: string) {
@@ -473,8 +542,151 @@ export async function reportUser(reporterId: string, reportedId: string, reason:
   });
 }
 
+// ===== MESSAGES: ADVANCED FEATURES =====
+
+/** Fetch messages including reactions (use instead of fetchMessages in conversation page) */
+export async function fetchMessagesWithReactions(conversationId: string, limit = 50) {
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*, sender:users!messages_sender_id_fkey(id, display_name, photos, vip_level), reactions:message_reactions(*)')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return (data || []).reverse();
+}
+
+/** Send a view-once (vault) message */
+export async function sendVaultMessage(conversationId: string, senderId: string, content: string, type = 'text') {
+  const { data, error } = await supabase
+    .from('messages')
+    .insert({ conversation_id: conversationId, sender_id: senderId, content, message_type: type, is_vault: true })
+    .select()
+    .single();
+  if (error) throw error;
+  await supabase
+    .from('conversations')
+    .update({ last_message: '🔒 View once', last_message_at: new Date().toISOString() })
+    .eq('id', conversationId);
+  return data;
+}
+
+/** Edit a message. Caller must verify time window before calling. */
+export async function editMessage(messageId: string, newContent: string, editorId: string) {
+  const { data: msg } = await supabase
+    .from('messages')
+    .select('content, original_content')
+    .eq('id', messageId)
+    .single();
+  if (!msg) throw new Error('Message not found');
+
+  await supabase.from('message_edits').insert({
+    message_id: messageId,
+    previous_content: msg.content,
+    editor_id: editorId,
+  });
+
+  const updates: Record<string, unknown> = {
+    content: newContent,
+    edited_at: new Date().toISOString(),
+  };
+  if (!msg.original_content) updates.original_content = msg.content;
+
+  const { error } = await supabase.from('messages').update(updates).eq('id', messageId);
+  if (error) throw error;
+}
+
+/**
+ * Delete / revoke a message.
+ * "for_everyone" — is_revoked + clears content. Sender only; caller enforces time window.
+ * "for_me_sender" — sets delete_for_sender_at. No content change.
+ * "for_me_recipient" — sets delete_for_recipient_at. No content change.
+ */
+export async function revokeMessage(
+  messageId: string,
+  mode: 'for_everyone' | 'for_me_sender' | 'for_me_recipient',
+) {
+  if (mode === 'for_everyone') {
+    await supabase
+      .from('messages')
+      .update({ is_revoked: true, content: null })
+      .eq('id', messageId);
+  } else if (mode === 'for_me_sender') {
+    await supabase
+      .from('messages')
+      .update({ delete_for_sender_at: new Date().toISOString() })
+      .eq('id', messageId);
+  } else {
+    await supabase
+      .from('messages')
+      .update({ delete_for_recipient_at: new Date().toISOString() })
+      .eq('id', messageId);
+  }
+}
+
+/** Mark a vault message as opened. Only call once (caller checks view_once_opened_at). */
+export async function openVaultMessage(messageId: string, userId: string) {
+  const { error } = await supabase.from('messages').update({
+    view_once_opened_at: new Date().toISOString(),
+    view_once_opened_by: userId,
+  }).eq('id', messageId);
+  if (error) throw error;
+}
+
+/** Upsert a reaction — replaces any existing reaction from this user on this message. */
+export async function addReaction(messageId: string, userId: string, emoji: string) {
+  await supabase.from('message_reactions').delete().match({ message_id: messageId, user_id: userId });
+  const { error } = await supabase.from('message_reactions').insert({ message_id: messageId, user_id: userId, emoji });
+  if (error) throw error;
+}
+
+/** Remove the current user's reaction from a message. */
+export async function removeReaction(messageId: string, userId: string) {
+  await supabase.from('message_reactions').delete().match({ message_id: messageId, user_id: userId });
+}
+
+/**
+ * Forward a message to another conversation.
+ * Vault and gift messages are rejected. Caller handles VP cost for strangers.
+ */
+export async function forwardMessage(
+  messageId: string,
+  targetConversationId: string,
+  senderId: string,
+) {
+  const { data: original, error } = await supabase
+    .from('messages')
+    .select('content, message_type, is_vault')
+    .eq('id', messageId)
+    .single();
+  if (error || !original) throw error ?? new Error('Message not found');
+  if (original.is_vault) throw new Error('Vault messages cannot be forwarded');
+  if (original.message_type === 'gift') throw new Error('Gift messages cannot be forwarded');
+
+  const { data, error: insertErr } = await supabase
+    .from('messages')
+    .insert({
+      conversation_id: targetConversationId,
+      sender_id: senderId,
+      content: original.content,
+      message_type: original.message_type,
+      is_forwarded: true,
+    })
+    .select()
+    .single();
+  if (insertErr) throw insertErr;
+
+  await supabase
+    .from('conversations')
+    .update({ last_message: original.content, last_message_at: new Date().toISOString() })
+    .eq('id', targetConversationId);
+
+  return data;
+}
+
 // ===== REALTIME SUBSCRIPTIONS =====
 
+/** @deprecated — use subscribeToMessageUpdates for INSERT + UPDATE coverage */
 export function subscribeToMessages(conversationId: string, callback: (msg: any) => void) {
   return supabase
     .channel(`messages:${conversationId}`)
@@ -483,7 +695,50 @@ export function subscribeToMessages(conversationId: string, callback: (msg: any)
       schema: 'public',
       table: 'messages',
       filter: `conversation_id=eq.${conversationId}`,
-    }, (payload) => callback(payload.new))
+    }, (payload: any) => callback(payload.new))
+    .subscribe();
+}
+
+/**
+ * Subscribe to INSERT + UPDATE on messages in a conversation.
+ * UPDATE covers edits, revokes, vault opens — propagates automatically to both clients.
+ */
+export function subscribeToMessageUpdates(
+  conversationId: string,
+  onInsert: (msg: any) => void,
+  onUpdate: (msg: any) => void,
+) {
+  return supabase
+    .channel(`messages-v2:${conversationId}`)
+    .on('postgres_changes', {
+      event: 'INSERT',
+      schema: 'public',
+      table: 'messages',
+      filter: `conversation_id=eq.${conversationId}`,
+    }, (payload: any) => onInsert(payload.new))
+    .on('postgres_changes', {
+      event: 'UPDATE',
+      schema: 'public',
+      table: 'messages',
+      filter: `conversation_id=eq.${conversationId}`,
+    }, (payload: any) => onUpdate(payload.new))
+    .subscribe();
+}
+
+/**
+ * Subscribe to reaction changes. Client filters by known message IDs.
+ * RLS on message_reactions ensures only authorized events arrive.
+ */
+export function subscribeToReactions(
+  onInsert: (r: any) => void,
+  onDelete: (r: any) => void,
+) {
+  return supabase
+    .channel(`reactions-${Math.random()}`)
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'message_reactions' },
+      (payload: any) => onInsert(payload.new))
+    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'message_reactions' },
+      (payload: any) => onDelete(payload.old))
     .subscribe();
 }
 
@@ -494,6 +749,6 @@ export function subscribeToConversations(userId: string, callback: (conv: any) =
       event: '*',
       schema: 'public',
       table: 'conversations',
-    }, (payload) => callback(payload.new))
+    }, (payload: any) => callback(payload.new))
     .subscribe();
 }

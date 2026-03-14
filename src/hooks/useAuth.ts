@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { createClient } from '@/lib/supabase';
+import { useContext, createContext } from 'react';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 export interface UserProfile {
@@ -36,70 +35,26 @@ export interface UserProfile {
   created_at: string;
 }
 
-export function useAuth() {
-  const [authUser, setAuthUser] = useState<SupabaseUser | null>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
-  const supabase = createClient();
+export interface AuthContextValue {
+  user: SupabaseUser | null;
+  profile: UserProfile | null;
+  loading: boolean;
+  isAuthenticated: boolean;
+  hasProfile: boolean;
+  refreshProfile: () => Promise<void>;
+  updateProfile: (updates: Partial<UserProfile>) => Promise<{ data: any; error: any } | undefined>;
+}
 
-  const fetchProfile = useCallback(async (userId: string) => {
-    const { data } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', userId)
-      .single();
-    if (data) setProfile(data as UserProfile);
-    return data as UserProfile | null;
-  }, [supabase]);
+export const AuthContext = createContext<AuthContextValue>({
+  user: null,
+  profile: null,
+  loading: true,
+  isAuthenticated: false,
+  hasProfile: false,
+  refreshProfile: async () => {},
+  updateProfile: async () => undefined,
+});
 
-  useEffect(() => {
-    // Get initial session
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      setAuthUser(user);
-      if (user) fetchProfile(user.id);
-      setLoading(false);
-    });
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        const user = session?.user ?? null;
-        setAuthUser(user);
-        if (user) {
-          await fetchProfile(user.id);
-        } else {
-          setProfile(null);
-        }
-        setLoading(false);
-      }
-    );
-
-    return () => subscription.unsubscribe();
-  }, [supabase, fetchProfile]);
-
-  const refreshProfile = useCallback(async () => {
-    if (authUser) await fetchProfile(authUser.id);
-  }, [authUser, fetchProfile]);
-
-  const updateProfile = useCallback(async (updates: Partial<UserProfile>) => {
-    if (!authUser) return;
-    const { data, error } = await supabase
-      .from('users')
-      .update({ ...updates, updated_at: new Date().toISOString() })
-      .eq('id', authUser.id)
-      .select()
-      .single();
-    if (!error && data) setProfile(data as UserProfile);
-    return { data, error };
-  }, [authUser, supabase]);
-
-  return {
-    user: authUser,
-    profile,
-    loading,
-    isAuthenticated: !!authUser,
-    hasProfile: !!profile?.display_name,
-    refreshProfile,
-    updateProfile,
-  };
+export function useAuth(): AuthContextValue {
+  return useContext(AuthContext);
 }

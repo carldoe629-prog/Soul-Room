@@ -11,9 +11,23 @@ export default function LoginPage() {
   const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resetSent, setResetSent] = useState(false);
+  const [resetLoading, setResetLoading] = useState(false);
 
   const router = useRouter();
   const supabase = createClient();
+
+  const handleForgotPassword = async () => {
+    if (!email) { setError('Enter your email above first'); return; }
+    setResetLoading(true);
+    setError(null);
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/login`,
+    });
+    setResetLoading(false);
+    if (error) setError(error.message);
+    else setResetSent(true);
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,8 +109,13 @@ export default function LoginPage() {
             <input type="checkbox" className="hidden" checked={rememberMe} onChange={() => setRememberMe(!rememberMe)} />
             Remember me
           </label>
-          <button type="button" className="hover:text-white transition-colors">
-            Forgot password?
+          <button
+            type="button"
+            onClick={handleForgotPassword}
+            disabled={resetLoading}
+            className="hover:text-white transition-colors disabled:opacity-50"
+          >
+            {resetSent ? '✅ Check your email' : resetLoading ? 'Sending…' : 'Forgot password?'}
           </button>
         </div>
 

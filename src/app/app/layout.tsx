@@ -4,8 +4,10 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
+import { AuthProvider } from '@/components/AuthProvider';
 import { formatNumber } from '@/lib/mock-data';
 import { useTheme } from '@/components/ThemeProvider';
+import { setUserOnline } from '@/lib/db';
 
 const NAV_ITEMS = [
   { href: '/app', icon: 'home', label: 'Home', badge: 0 },
@@ -69,7 +71,7 @@ function ThemeToggle() {
 
   return (
     <button 
-      onClick={() => setTheme(nextTheme)}
+      onClick={() => setTheme(nextTheme as any)}
       className="p-2 rounded-full hover:bg-dark-600 transition-colors text-lg"
       title={`Switch to ${nextTheme} mode`}
     >
@@ -78,10 +80,11 @@ function ThemeToggle() {
   );
 }
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
+// Inner shell — consumes AuthContext provided by the wrapper below
+function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { profile, loading, isAuthenticated } = useAuth();
+  const { user, profile, loading, isAuthenticated } = useAuth();
 
   // Auth guard: redirect to login if not authenticated (after loading)
   useEffect(() => {
@@ -89,6 +92,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       router.push('/login');
     }
   }, [loading, isAuthenticated, router]);
+
+  // Online presence
+  useEffect(() => {
+    if (!user) return;
+    setUserOnline(user.id, true);
+    const handleVisibility = () => setUserOnline(user.id, !document.hidden);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      setUserOnline(user.id, false);
+    };
+  }, [user]);
 
   if (loading) {
     return (
@@ -177,5 +192,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         </div>
       </nav>
     </div>
+  );
+}
+
+export default function AppLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <AuthProvider>
+      <AppShell>{children}</AppShell>
+    </AuthProvider>
   );
 }
