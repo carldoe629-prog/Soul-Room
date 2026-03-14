@@ -1,0 +1,1 @@
+self.__SSG_MANIFEST=new Set(["\u002Fapp\u002Fprofile\u002F[userId]","\u002Fapp\u002Fworlds\u002F[worldId]","\u002Fapp\u002Fworlds\u002F[worldId]\u002Frooms\u002F[roomId]"]);self.__SSG_MANIFEST_CB&&self.__SSG_MANIFEST_CB()
