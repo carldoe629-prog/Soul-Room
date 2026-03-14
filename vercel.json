@@ -1,7 +1,6 @@
 {
-  "framework": "nextjs",
-  "rootDirectory": "soul-room-app",
-  "buildCommand": "npm run build",
-  "outputDirectory": "out",
-  "installCommand": "npm install"
+  "buildCommand": "cd soul-room-app && npm run build",
+  "outputDirectory": "soul-room-app/out",
+  "installCommand": "cd soul-room-app && npm install",
+  "framework": "nextjs"
 }
