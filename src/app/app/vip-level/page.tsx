@@ -29,7 +29,7 @@ export default function VipLevelPage() {
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [userRank, setUserRank] = useState<number | null>(null);
 
-  const currentLevel = profile?.vip_level ?? 0;
+  const currentLevel = profile?.subscription_tier === 'founder' ? 999 : (profile?.vip_level ?? 0);
   const totalXp = profile?.total_xp ?? 0;
   const monthlyXp = profile?.monthly_xp ?? 0;
 

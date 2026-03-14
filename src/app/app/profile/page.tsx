@@ -131,7 +131,7 @@ export default function ProfilePage() {
     );
   }
 
-  const vipLevel = profile?.vip_level ?? 0;
+  const vipLevel = profile?.subscription_tier === 'founder' ? 999 : (profile?.vip_level ?? 0);
   const totalXp = profile?.total_xp ?? 0;
   const vip = getVipInfo(vipLevel);
   const nextVip = getVipInfo(Math.min(vipLevel + 1, 8));

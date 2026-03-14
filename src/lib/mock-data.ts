@@ -836,9 +836,42 @@ export const VIP_LEVELS: VipLevel[] = [
   },
 ];
 
+export const FOUNDER_VIP_LEVEL: VipLevel = {
+  level: 999,
+  name: 'Founder',
+  badge: '👑',
+  xpRequired: 0,
+  monthlyMaintenanceXp: 0,
+  levelUpVpBonus: 0,
+  giftEarningRate: 50,
+  hasCustomBorderColor: true,
+  hasExtendedSparkCall: true,
+  hasHideLastSeen: true,
+  hasGhostMode: true,
+  hasEntranceAnimation: true,
+  hasReadReceiptControl: true,
+  hasPlatinumRooms: true,
+  hasInvisibleBrowsing: true,
+  hasDiamondEntrance: true,
+  hasWorldCreation: true,
+  reducedSafeExitTollVp: 0,
+  hasConcierge: true,
+  hasPriorityMatchmaking: true,
+  hasLegendaryFrame: true,
+  hasCoHosting: true,
+  hasIncognitoSpark: true,
+  hasUnlimitedWorlds: true,
+  hasCustomAnimation: true,
+  hasGlobalLeaderboard: true,
+  tagline: 'The architect of the platform. Infinite capabilities.',
+  keyPrivilege: 'All features permanently unlocked',
+};
+
 // ===== GIFT EARNING RATE LOOKUP =====
-export function getGiftEarningRate(vipLevel: number): number {
-  return (VIP_LEVELS[vipLevel] || VIP_LEVELS[0]).giftEarningRate;
+export function getGiftEarningRate(level: number): number {
+  if (level >= 999) return FOUNDER_VIP_LEVEL.giftEarningRate;
+  const match = VIP_LEVELS.find((v) => v.level === level);
+  return match?.giftEarningRate ?? 30;
 }
 
 // ===== CURRENT USER VIP STATUS =====
