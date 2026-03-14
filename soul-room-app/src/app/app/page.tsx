@@ -278,6 +278,146 @@ function SparkMatchesSection({
 
 // ── Section 2: Discover ───────────────────────────────────
 
+const MOCK_NOTIFICATIONS = [
+  { id: '1', type: 'match', icon: '💘', text: 'You and Amara matched!', time: '2m ago' },
+  { id: '2', type: 'sayhi', icon: '👋', text: 'Kofi sent you a Say Hi', time: '10m ago' },
+  { id: '3', type: 'gift', icon: '🎁', text: 'Esi sent you a Rose (+50 VP)', time: '1h ago' },
+  { id: '4', type: 'room', icon: '🎤', text: 'AfroBeats Lounge is live now', time: '2h ago' },
+  { id: '5', type: 'like', icon: '❤️', text: 'Someone new liked your profile', time: '3h ago' },
+];
+
+function NotificationsSheet({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div
+        className="relative glass-strong rounded-t-3xl px-4 pt-4 pb-8 max-h-[75vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-4" />
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold text-white">Notifications</h3>
+          <button onClick={onClose} className="text-text-tertiary hover:text-white transition-colors">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <div className="space-y-2">
+          {MOCK_NOTIFICATIONS.map((n) => (
+            <div key={n.id} className="flex items-center gap-3 p-3 rounded-2xl glass hover:bg-dark-600/50 transition-colors cursor-pointer">
+              <div className="w-10 h-10 rounded-full bg-dark-600/50 flex items-center justify-center text-xl flex-shrink-0">{n.icon}</div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-white font-medium truncate">{n.text}</p>
+                <p className="text-[10px] text-text-tertiary mt-0.5">{n.time}</p>
+              </div>
+              {(n.type === 'match' || n.type === 'sayhi') && (
+                <div className="w-2 h-2 rounded-full bg-soul-400 flex-shrink-0" />
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FilterSheet({
+  filter,
+  setFilter,
+  onlineOnly,
+  setOnlineOnly,
+  ageRange,
+  setAgeRange,
+  onClose,
+}: {
+  filter: string;
+  setFilter: (f: string) => void;
+  onlineOnly: boolean;
+  setOnlineOnly: (v: boolean) => void;
+  ageRange: [number, number];
+  setAgeRange: (r: [number, number]) => void;
+  onClose: () => void;
+}) {
+  const genders = ['All', 'Women', 'Men'];
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col justify-end" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div
+        className="relative glass-strong rounded-t-3xl px-4 pt-4 pb-8"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="w-10 h-1 rounded-full bg-white/20 mx-auto mb-4" />
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-lg font-bold text-white">Filter Discover</h3>
+          <button onClick={onClose} className="text-text-tertiary hover:text-white transition-colors">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="mb-5">
+          <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2">Show me</p>
+          <div className="flex gap-2">
+            {genders.map((g) => (
+              <button
+                key={g}
+                onClick={() => setFilter(g)}
+                className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-all ${
+                  filter === g ? 'gradient-accent text-white shadow-[0_0_10px_rgba(244,53,221,0.3)]' : 'glass text-[#DCA8EE]'
+                }`}
+              >
+                {g}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mb-5">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Online only</p>
+            <button
+              onClick={() => setOnlineOnly(!onlineOnly)}
+              className={`w-11 h-6 rounded-full transition-colors relative ${onlineOnly ? 'bg-soul-500' : 'bg-dark-500'}`}
+            >
+              <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${onlineOnly ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </button>
+          </div>
+        </div>
+
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Age range</p>
+            <span className="text-xs text-soul-300 font-semibold">{ageRange[0]}–{ageRange[1]}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-text-tertiary w-6">18</span>
+            <input
+              type="range" min={18} max={ageRange[1] - 1} value={ageRange[0]}
+              onChange={(e) => setAgeRange([+e.target.value, ageRange[1]])}
+              className="flex-1 accent-soul-500"
+            />
+            <input
+              type="range" min={ageRange[0] + 1} max={60} value={ageRange[1]}
+              onChange={(e) => setAgeRange([ageRange[0], +e.target.value])}
+              className="flex-1 accent-soul-500"
+            />
+            <span className="text-xs text-text-tertiary w-6">60</span>
+          </div>
+        </div>
+
+        <button
+          onClick={onClose}
+          className="w-full py-3 rounded-2xl gradient-accent text-white font-bold text-sm shadow-[0_0_15px_rgba(244,53,221,0.3)]"
+        >
+          Apply Filters
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function PeopleOnlineSection({
   users,
   loading,
@@ -290,6 +430,10 @@ function PeopleOnlineSection({
   onSayHi: (user: DbUser) => void;
 }) {
   const [filter, setFilter] = useState('All');
+  const [onlineOnly, setOnlineOnly] = useState(false);
+  const [ageRange, setAgeRange] = useState<[number, number]>([18, 45]);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showFilter, setShowFilter] = useState(false);
   const filters = ['All', 'Women', 'Men', 'My Interests'];
 
   const filtered = users
@@ -298,65 +442,102 @@ function PeopleOnlineSection({
       if (filter === 'Men') return u.gender === 'Male';
       return true;
     })
+    .filter((u) => !onlineOnly || u.is_online)
+    .filter((u) => u.age >= ageRange[0] && u.age <= ageRange[1])
     .sort((a, b) => (getLastOnlineMinutes(a) ?? 999) - (getLastOnlineMinutes(b) ?? 999));
 
+  const unreadCount = MOCK_NOTIFICATIONS.filter((n) => n.type === 'match' || n.type === 'sayhi').length;
+
   return (
-    <section className="mb-6">
-      <div className="px-4 mb-3">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <button className="w-8 h-8 rounded-full bg-dark-600/50 flex items-center justify-center flex-shrink-0 border border-white/5 overflow-hidden">
-              {avatarUrl ? (
-                <img src={avatarUrl} alt="Me" className="w-full h-full rounded-full object-cover" />
-              ) : (
-                <span className="text-xs text-text-secondary">Me</span>
-              )}
-            </button>
-            <h2 className="text-xl font-bold text-white tracking-wide">Discover</h2>
+    <>
+      {showNotifications && <NotificationsSheet onClose={() => setShowNotifications(false)} />}
+      {showFilter && (
+        <FilterSheet
+          filter={filter} setFilter={setFilter}
+          onlineOnly={onlineOnly} setOnlineOnly={setOnlineOnly}
+          ageRange={ageRange} setAgeRange={setAgeRange}
+          onClose={() => setShowFilter(false)}
+        />
+      )}
+      <section className="mb-6">
+        <div className="px-4 mb-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <button className="w-8 h-8 rounded-full bg-dark-600/50 flex items-center justify-center flex-shrink-0 border border-white/5 overflow-hidden">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="Me" className="w-full h-full rounded-full object-cover" />
+                ) : (
+                  <span className="text-xs text-text-secondary">Me</span>
+                )}
+              </button>
+              <h2 className="text-xl font-bold text-white tracking-wide">Discover</h2>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowNotifications(true)}
+                className="relative w-8 h-8 rounded-full glass flex items-center justify-center hover:bg-dark-600 transition-colors"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
+                  <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                </svg>
+                {unreadCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-soul-500 text-[8px] text-white font-bold flex items-center justify-center">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => setShowFilter(true)}
+                className="w-8 h-8 rounded-full glass flex items-center justify-center hover:bg-dark-600 transition-colors"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-text-secondary">
+                  <line x1="4" y1="6" x2="20" y2="6" />
+                  <line x1="8" y1="12" x2="16" y2="12" />
+                  <line x1="11" y1="18" x2="13" y2="18" />
+                </svg>
+              </button>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <button className="w-8 h-8 rounded-full glass flex items-center justify-center hover:bg-dark-600 transition-colors">🔔</button>
-            <button className="w-8 h-8 rounded-full glass flex items-center justify-center hover:bg-dark-600 transition-colors">⚙️</button>
+
+          <div className="glass-strong p-3 rounded-2xl flex items-center justify-between mb-4 border border-white/5">
+            <div>
+              <h3 className="text-sm font-bold text-white">Unlock all your Likes</h3>
+              <p className="text-[10px] text-text-secondary">See everyone who is interested in you</p>
+            </div>
+            <Link href="/app/subscribe" className="px-3 py-1.5 rounded-full bg-soul-600/30 text-soul-200 text-[10px] font-bold border border-soul-500/50">
+              Go Premium
+            </Link>
           </div>
-        </div>
 
-        <div className="glass-strong p-3 rounded-2xl flex items-center justify-between mb-4 border border-white/5">
-          <div>
-            <h3 className="text-sm font-bold text-white">Unlock all your Likes</h3>
-            <p className="text-[10px] text-text-secondary">See everyone who is interested in you</p>
-          </div>
-          <Link href="/app/subscribe" className="px-3 py-1.5 rounded-full bg-soul-600/30 text-soul-200 text-[10px] font-bold border border-soul-500/50">
-            Go Premium
-          </Link>
-        </div>
-
-        <div className="flex gap-2 overflow-x-auto no-scrollbar">
-          {filters.map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={`px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
-                filter === f
-                  ? 'gradient-accent text-white shadow-[0_0_10px_rgba(244,53,221,0.3)]'
-                  : 'glass text-[#DCA8EE] hover:text-white'
-              }`}
-            >
-              {f}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-x-4 gap-y-5 px-4">
-        {loading
-          ? Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="w-full aspect-[3/4] rounded-[24px] glass animate-pulse" />
-            ))
-          : filtered.slice(0, 4).map((user) => (
-              <UserProfileCard key={user.id} user={user} onSayHi={onSayHi} />
+          <div className="flex gap-2 overflow-x-auto no-scrollbar">
+            {filters.map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
+                  filter === f
+                    ? 'gradient-accent text-white shadow-[0_0_10px_rgba(244,53,221,0.3)]'
+                    : 'glass text-[#DCA8EE] hover:text-white'
+                }`}
+              >
+                {f}
+              </button>
             ))}
-      </div>
-    </section>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-x-4 gap-y-5 px-4">
+          {loading
+            ? Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="w-full aspect-[3/4] rounded-[24px] glass animate-pulse" />
+              ))
+            : filtered.slice(0, 4).map((user) => (
+                <UserProfileCard key={user.id} user={user} onSayHi={onSayHi} />
+              ))}
+        </div>
+      </section>
+    </>
   );
 }
 
