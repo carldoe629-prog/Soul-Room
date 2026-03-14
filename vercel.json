@@ -1,5 +1,4 @@
 {
   "buildCommand": "cd soul-room-app && npm run build",
-  "outputDirectory": "soul-room-app/out",
   "installCommand": "cd soul-room-app && npm install"
 }
