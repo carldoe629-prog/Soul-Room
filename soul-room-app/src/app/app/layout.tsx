@@ -6,7 +6,7 @@ import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { AuthProvider } from '@/components/AuthProvider';
 import { formatNumber } from '@/lib/mock-data';
-import { useTheme, ThemeProvider } from '@/components/ThemeProvider';
+import { useTheme, ThemeProvider, type Theme } from '@/components/ThemeProvider';
 import { setUserOnline } from '@/lib/db';
 
 const NAV_ITEMS = [
@@ -65,7 +65,7 @@ function ThemeToggle() {
 
   return (
     <button
-      onClick={() => setTheme(isDark ? 'light' : 'dark')}
+      onClick={() => setTheme((isDark ? 'light' : 'dark') as Theme)}
       className="p-2 rounded-full hover:bg-dark-600/50 transition-colors text-lg"
       title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
     >
