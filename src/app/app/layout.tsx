@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { AuthProvider } from '@/components/AuthProvider';
 import { formatNumber } from '@/lib/mock-data';
@@ -85,6 +85,20 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, profile, loading, isAuthenticated } = useAuth();
+  
+  const [showNav, setShowNav] = useState(true);
+  const lastScrollY = useRef(0);
+
+  const handleScroll = (e: React.UIEvent<HTMLElement>) => {
+    const currentScrollY = e.currentTarget.scrollTop;
+    if (currentScrollY > lastScrollY.current && currentScrollY > 50) {
+      setShowNav(false);
+    } else {
+      setShowNav(true);
+    }
+    lastScrollY.current = currentScrollY;
+  };
+
 
   // Auth guard: redirect to login if not authenticated (after loading)
   useEffect(() => {
@@ -123,7 +137,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex flex-col min-h-screen max-w-lg mx-auto bg-dark-900 relative">
       {/* Top Bar */}
-      <header className="sticky top-0 z-50 glass px-4 py-3 flex items-center justify-between border-b border-white/5">
+      <header className={`sticky top-0 z-50 glass px-4 py-3 flex items-center justify-between border-b border-white/5 transition-transform duration-300 ${showNav ? 'translate-y-0' : '-translate-y-full'}`}>
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-full gradient-accent flex items-center justify-center text-xs font-bold text-white shadow-[0_0_15px_rgba(244,53,221,0.4)]">SR</div>
           <span className="text-lg font-bold text-white tracking-wide">Soul Room</span>
@@ -151,12 +165,12 @@ function AppShell({ children }: { children: React.ReactNode }) {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto pb-24">
+      <main className="flex-1 overflow-y-auto pb-24" onScroll={handleScroll}>
         {children}
       </main>
 
       {/* Bottom Navigation */}
-      <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-lg z-50 glass border-t border-white/5 pb-safe">
+      <nav className={`fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-lg z-50 glass border-t border-white/5 pb-safe transition-transform duration-300 ${showNav ? 'translate-y-0' : 'translate-y-[150%]'}`}>
         <div className="flex items-center justify-around py-3 px-2">
           {NAV_ITEMS.map((item) => {
             const isActive = item.href === '/app'

@@ -61,6 +61,7 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
 
   const [socialStats, setSocialStats] = useState({ friends: 0, following: 0, followers: 0, visitors: 0 });
+  const [viewingSocial, setViewingSocial] = useState<{type: string, title: string} | null>(null);
   const [earnings, setEarnings] = useState({ balance_earned_vp: 0 });
   const [challenges, setChallenges] = useState<any[]>([]);
   const [achievements, setAchievements] = useState<any[]>([]);
@@ -155,10 +156,10 @@ export default function ProfilePage() {
     <div className="animate-fade-in pb-6 font-[Outfit]">
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 pt-3 pb-1">
-        <button className="text-sm text-text-secondary hover:text-text-primary transition-colors flex items-center gap-1.5">
+        <button onClick={() => alert('Settings coming soon!')} className="text-sm text-text-secondary hover:text-text-primary transition-colors flex items-center gap-1.5">
           <span>⚙️</span> <span className="text-xs">Settings</span>
         </button>
-        <button className="text-sm text-text-secondary hover:text-text-primary transition-colors flex items-center gap-1.5">
+        <button onClick={() => alert('Support coming soon!')} className="text-sm text-text-secondary hover:text-text-primary transition-colors flex items-center gap-1.5">
           <span className="text-xs">Support</span> <span>🎧</span>
         </button>
       </div>
@@ -248,7 +249,11 @@ export default function ProfilePage() {
           { value: socialStats.followers, label: 'Followers' },
           { value: socialStats.visitors, label: 'Visitors' },
         ].map((s) => (
-          <button key={s.label} className="relative p-2.5 rounded-2xl glass text-center hover:bg-dark-600/50 transition-all">
+          <button 
+            key={s.label} 
+            onClick={() => setViewingSocial({ type: s.label.toLowerCase(), title: s.label })}
+            className="relative p-2.5 rounded-2xl glass text-center hover:bg-dark-600/50 transition-all"
+          >
             <div className="text-lg font-bold text-text-primary">{s.value}</div>
             <div className="text-[10px] text-text-tertiary">{s.label}</div>
           </button>
@@ -556,6 +561,53 @@ export default function ProfilePage() {
           <span className="text-sm text-red font-medium">Sign Out</span>
         </button>
       </div>
+
+      {/* ── Social stats Modal ── */}
+      {viewingSocial && (
+        <div className="fixed inset-0 z-[100] flex flex-col justify-end" onClick={() => setViewingSocial(null)}>
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+          <div className="relative w-full max-w-lg mx-auto bg-dark-800 rounded-t-3xl min-h-[50vh] p-6 animate-slide-up border-t border-white/10" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-white capitalize">{viewingSocial.title}</h3>
+              <button onClick={() => setViewingSocial(null)} className="w-8 h-8 rounded-full bg-dark-600 flex items-center justify-center text-white hover:bg-dark-500 transition-colors">
+                ✕
+              </button>
+            </div>
+            
+            {(socialStats as any)[viewingSocial.type] > 0 ? (
+              <div className="space-y-3">
+                {/* Mock Users List */}
+                {[...Array(Math.min((socialStats as any)[viewingSocial.type], 5))].map((_, i) => (
+                  <div key={i} className="flex items-center justify-between p-3 rounded-2xl glass">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-full bg-dark-600 flex items-center justify-center text-xl">
+                        {['👤', '👩🏾', '👨🏾', '👱‍♀️', '🧔'][i % 5]}
+                      </div>
+                      <div>
+                        <div className="text-sm font-bold text-white">User {i + 1}</div>
+                        <div className="text-xs text-text-tertiary">Active {i + 1}h ago</div>
+                      </div>
+                    </div>
+                    <button className="px-4 py-1.5 rounded-full bg-accent text-white text-xs font-bold hover:bg-accent/90 transition-all">
+                      View
+                    </button>
+                  </div>
+                ))}
+                {(socialStats as any)[viewingSocial.type] > 5 && (
+                  <div className="text-center mt-4">
+                    <button className="text-xs text-text-secondary hover:text-white transition-colors">Load more...</button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-48 gap-3 opacity-60">
+                <div className="text-4xl">👻</div>
+                <div className="text-sm text-text-secondary">No {viewingSocial.title.toLowerCase()} yet.</div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

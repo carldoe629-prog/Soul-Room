@@ -29,6 +29,7 @@ interface ProfileData {
   is_online: boolean;
   last_online_at: string | null;
   vip_level: number;
+  subscription_tier: string;
   vibe_rating: number;
   vibe_rating_count: number;
   looking_for: string;
@@ -138,7 +139,8 @@ export default function UserProfilePage() {
     );
   }
 
-  const vipInfo = getVipInfo(profile.vip_level);
+  const vipLevel = profile.subscription_tier === 'founder' ? 999 : (profile.vip_level ?? 0);
+  const vipInfo = getVipInfo(vipLevel);
   const mainPhoto = profile.photos?.[0];
   const albumPhotos = profile.photos?.slice(1) ?? [];
   const lastSeen = getLastSeenLabel(profile);
