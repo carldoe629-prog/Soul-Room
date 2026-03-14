@@ -273,7 +273,7 @@ function MyPeopleTab({
           <div className="py-12 text-center">
             <div className="text-4xl mb-3">💬</div>
             <p className="text-text-primary font-semibold mb-1">No conversations yet</p>
-            <p className="text-xs text-text-tertiary">Say Hi to someone on the Discover tab</p>
+            <p className="text-xs text-text-tertiary">Say Hi to someone on the Home tab</p>
           </div>
         )}
       </div>
@@ -369,7 +369,7 @@ function SparksTab({
         <div className="py-12 text-center">
           <div className="text-4xl mb-3">⚡</div>
           <p className="text-text-primary font-semibold mb-1">No sparks yet</p>
-          <p className="text-xs text-text-tertiary">Spark someone on the Discover tab to match</p>
+          <p className="text-xs text-text-tertiary">Spark someone on the Spark tab to match</p>
         </div>
       ) : (
         <div className="space-y-4">
