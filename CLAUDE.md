@@ -57,7 +57,9 @@ soul-room-app/
 │   └── lib/
 │       ├── supabase.ts           # Supabase browser client
 │       ├── db.ts                 # All DB query functions
-│       └── mock-data.ts          # Mock data for UI development
+│       ├── mock-data.ts          # Mock data for UI development
+│       └── moderation/
+│           └── contact-detector.ts  # Contact info filter (Layer 1)
 ├── capacitor.config.ts
 └── android/                      # Capacitor Android project
 ```
@@ -164,6 +166,36 @@ Three sections: Spark Matches carousel → People Online (Discover grid) → Liv
 ### ThemeProvider
 - Must have explicit `: ThemeContextType` return type on `useTheme()` to satisfy TypeScript strict mode
 - `setTheme` call sites must cast: `(isDark ? 'light' : 'dark') as Theme`
+
+## Contact Filtering — Layer 1 (COMPLETE)
+
+Contact info detection and blocking to prevent users from sharing phone numbers, emails, social handles, and URLs outside the platform. Implementation in `src/lib/moderation/contact-detector.ts`.
+
+### Architecture — Two layers of defence
+
+**Client-side (in `db.ts` and `AuthProvider.tsx`):**
+- **Chat messages — silent redaction**: `filterChatMessage()` replaces contact info with `[Contact info protected by Soul Room]`. Sender always sees success (never told the filter fired). Applied in: `sendMessage()`, `sendSayHi()`, `editMessage()`, `sendVaultMessage()`, `forwardMessage()`.
+- **Profile fields — hard block**: `profileFieldContainsContactInfo()` returns true if bio/display_name/occupation contain contact info. Used in `updateProfile()` (AuthProvider) and onboarding save. Returns a user-facing error instead of saving. Profile checks also detect platform keywords (instagram, whatsapp, etc.) — chat filter does NOT block platform keywords alone.
+
+**Server-side (Postgres triggers in Supabase):**
+- `trg_redact_contact_info` on `messages` — BEFORE INSERT/UPDATE, silently redacts phone/email/handle/URL using `regexp_replace`
+- `trg_block_contact_info_in_profile` on `users` — BEFORE INSERT/UPDATE, raises exception if bio/display_name/occupation contain contact info
+- SQL source: `supabase/contact-filter-trigger.sql`
+
+### Phone patterns — Africa-first
+Nigeria, Ghana, Kenya, South Africa, UK, US/Canada, Egypt, Tanzania, Uganda, Ivory Coast, Senegal, plus generic 10-digit fallback.
+
+### Founder bypass
+Not yet implemented in client-side code (no `is_founder` field on user profile yet). When the founder system is built, add `is_founder` check before calling `filterChatMessage()` and `profileFieldContainsContactInfo()`.
+
+### Future layers (not yet implemented)
+- **Layer 2**: Drip-feed accumulator — track violation frequency per user per month via `buildViolationKey()`
+- **Layer 3**: Encoding detection — catch leetspeak, spaced-out digits, spelled-out numbers
+- **Layer 4**: AI audit — LLM-based semantic analysis for sophisticated evasion
+
+### Gotchas
+- **Regex `lastIndex` reset**: All phone/URL patterns use the `g` flag (stateful). After every `test()` call, `lastIndex` must be reset to 0 or subsequent calls produce false negatives. Every pattern in `contact-detector.ts` has explicit `lastIndex = 0` resets.
+- **Chat vs Profile filtering**: Chat filter does NOT block platform keywords alone ("I love WhatsApp" is fine). Profile filter DOES block platform keywords (bio should not mention Instagram/WhatsApp/etc. at all).
 
 ## Git / GitHub
 

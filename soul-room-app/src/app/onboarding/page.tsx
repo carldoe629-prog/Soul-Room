@@ -7,6 +7,7 @@ import { INTEREST_TAGS } from '@/lib/mock-data';
 import { createClient } from '@/lib/supabase';
 import { useMediaPicker } from '@/hooks/useMediaPicker';
 import { uploadPhoto } from '@/lib/auth';
+import { profileFieldContainsContactInfo } from '@/lib/moderation/contact-detector';
 
 // ===== ONBOARDING STATE =====
 interface OnboardingData {
@@ -406,6 +407,23 @@ export default function OnboardingPage() {
         } else if (data.photos[i]) {
           photoUrls.push(data.photos[i]!);
         }
+      }
+
+      // Hard-block contact info in profile fields
+      if (profileFieldContainsContactInfo(data.displayName)) {
+        alert('Display names cannot contain phone numbers, handles, or links.');
+        setSaving(false);
+        return;
+      }
+      if (data.bio && profileFieldContainsContactInfo(data.bio)) {
+        alert('For your safety, phone numbers, social media handles, and links cannot be added to your bio.');
+        setSaving(false);
+        return;
+      }
+      if (data.occupation && profileFieldContainsContactInfo(data.occupation)) {
+        alert('Contact information cannot be added to your occupation field.');
+        setSaving(false);
+        return;
       }
 
       // Save profile to users table

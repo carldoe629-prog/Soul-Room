@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import { createClient } from '@/lib/supabase';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import { AuthContext, type UserProfile } from '@/hooks/useAuth';
+import { profileFieldContainsContactInfo } from '@/lib/moderation/contact-detector';
 
 // Stable singleton — created once outside the component
 const supabase = createClient();
@@ -114,6 +115,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const updateProfile = useCallback(async (updates: Partial<UserProfile>) => {
     if (isDemoMode) return; // no-op in demo
     if (!authUser) return;
+
+    // Hard-block contact info in profile fields
+    if (updates.bio && profileFieldContainsContactInfo(updates.bio)) {
+      return { data: null, error: { message: 'For your safety, phone numbers, social media handles, and links cannot be added to your bio.', code: 'CONTACT_INFO_IN_BIO' } };
+    }
+    if (updates.display_name && profileFieldContainsContactInfo(updates.display_name)) {
+      return { data: null, error: { message: 'Contact information cannot be added to your display name.', code: 'CONTACT_INFO_IN_NAME' } };
+    }
+    if (updates.occupation && profileFieldContainsContactInfo(updates.occupation)) {
+      return { data: null, error: { message: 'Contact information cannot be added to your occupation.', code: 'CONTACT_INFO_IN_FIELD' } };
+    }
+
     const { data, error } = await supabase
       .from('users')
       .update({ ...updates, updated_at: new Date().toISOString() })

@@ -1,5 +1,6 @@
 import { createClient } from './supabase';
 import { getGiftEarningRate } from './mock-data';
+import { filterChatMessage } from './moderation/contact-detector';
 
 const supabase = createClient();
 
@@ -144,17 +145,21 @@ export async function fetchMessages(conversationId: string, limit = 50) {
 }
 
 export async function sendMessage(conversationId: string, senderId: string, content: string, type = 'text') {
+  // Silent redaction — sender sees success, receiver sees redacted version
+  const filtered = type === 'text' ? filterChatMessage(content) : null;
+  const storedContent = filtered?.redactedContent ?? content;
+
   const { data, error } = await supabase
     .from('messages')
-    .insert({ conversation_id: conversationId, sender_id: senderId, content, message_type: type })
+    .insert({ conversation_id: conversationId, sender_id: senderId, content: storedContent, message_type: type })
     .select()
     .single();
   if (error) throw error;
 
-  // Update conversation
+  // Update conversation preview with redacted content
   await supabase
     .from('conversations')
-    .update({ last_message: content, last_message_at: new Date().toISOString() })
+    .update({ last_message: storedContent, last_message_at: new Date().toISOString() })
     .eq('id', conversationId);
 
   return data;
@@ -244,9 +249,11 @@ export async function createSpark(fromId: string, toId: string, score: number) {
 // ===== SAY HI REQUESTS =====
 
 export async function sendSayHi(senderId: string, receiverId: string, message: string, vpCost = 0) {
+  // Silent redaction on Say Hi messages
+  const filtered = filterChatMessage(message);
   const { data, error } = await supabase
     .from('say_hi_requests')
-    .insert({ sender_id: senderId, receiver_id: receiverId, message, vp_cost: vpCost })
+    .insert({ sender_id: senderId, receiver_id: receiverId, message: filtered.redactedContent, vp_cost: vpCost })
     .select()
     .single();
   if (error) throw error;
@@ -558,9 +565,13 @@ export async function fetchMessagesWithReactions(conversationId: string, limit =
 
 /** Send a view-once (vault) message */
 export async function sendVaultMessage(conversationId: string, senderId: string, content: string, type = 'text') {
+  // Silent redaction on vault messages too
+  const filtered = type === 'text' ? filterChatMessage(content) : null;
+  const storedContent = filtered?.redactedContent ?? content;
+
   const { data, error } = await supabase
     .from('messages')
-    .insert({ conversation_id: conversationId, sender_id: senderId, content, message_type: type, is_vault: true })
+    .insert({ conversation_id: conversationId, sender_id: senderId, content: storedContent, message_type: type, is_vault: true })
     .select()
     .single();
   if (error) throw error;
@@ -573,6 +584,10 @@ export async function sendVaultMessage(conversationId: string, senderId: string,
 
 /** Edit a message. Caller must verify time window before calling. */
 export async function editMessage(messageId: string, newContent: string, editorId: string) {
+  // Silent redaction on edited content
+  const filtered = filterChatMessage(newContent);
+  const redacted = filtered.redactedContent;
+
   const { data: msg } = await supabase
     .from('messages')
     .select('content, original_content')
@@ -587,7 +602,7 @@ export async function editMessage(messageId: string, newContent: string, editorI
   });
 
   const updates: Record<string, unknown> = {
-    content: newContent,
+    content: redacted,
     edited_at: new Date().toISOString(),
   };
   if (!msg.original_content) updates.original_content = msg.content;
@@ -663,12 +678,17 @@ export async function forwardMessage(
   if (original.is_vault) throw new Error('Vault messages cannot be forwarded');
   if (original.message_type === 'gift') throw new Error('Gift messages cannot be forwarded');
 
+  // Silent redaction on forwarded content (original may predate the filter)
+  const filtered = original.message_type === 'text' && original.content
+    ? filterChatMessage(original.content) : null;
+  const forwardedContent = filtered?.redactedContent ?? original.content;
+
   const { data, error: insertErr } = await supabase
     .from('messages')
     .insert({
       conversation_id: targetConversationId,
       sender_id: senderId,
-      content: original.content,
+      content: forwardedContent,
       message_type: original.message_type,
       is_forwarded: true,
     })
@@ -678,7 +698,7 @@ export async function forwardMessage(
 
   await supabase
     .from('conversations')
-    .update({ last_message: original.content, last_message_at: new Date().toISOString() })
+    .update({ last_message: forwardedContent, last_message_at: new Date().toISOString() })
     .eq('id', targetConversationId);
 
   return data;
