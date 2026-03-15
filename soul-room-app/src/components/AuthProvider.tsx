@@ -32,6 +32,7 @@ const DEMO_PROFILE: UserProfile = {
   trust_score: 87,
   vibe_rating: 4.7,
   vibe_rating_count: 34,
+  is_founder: false,
   is_verified: true,
   is_online: true,
   last_online_at: new Date().toISOString(),
@@ -116,15 +117,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (isDemoMode) return; // no-op in demo
     if (!authUser) return;
 
-    // Hard-block contact info in profile fields
-    if (updates.bio && profileFieldContainsContactInfo(updates.bio)) {
-      return { data: null, error: { message: 'For your safety, phone numbers, social media handles, and links cannot be added to your bio.', code: 'CONTACT_INFO_IN_BIO' } };
-    }
-    if (updates.display_name && profileFieldContainsContactInfo(updates.display_name)) {
-      return { data: null, error: { message: 'Contact information cannot be added to your display name.', code: 'CONTACT_INFO_IN_NAME' } };
-    }
-    if (updates.occupation && profileFieldContainsContactInfo(updates.occupation)) {
-      return { data: null, error: { message: 'Contact information cannot be added to your occupation.', code: 'CONTACT_INFO_IN_FIELD' } };
+    // Hard-block contact info in profile fields (founders bypass)
+    if (!profile?.is_founder) {
+      if (updates.bio && profileFieldContainsContactInfo(updates.bio)) {
+        return { data: null, error: { message: 'For your safety, phone numbers, social media handles, and links cannot be added to your bio.', code: 'CONTACT_INFO_IN_BIO' } };
+      }
+      if (updates.display_name && profileFieldContainsContactInfo(updates.display_name)) {
+        return { data: null, error: { message: 'Contact information cannot be added to your display name.', code: 'CONTACT_INFO_IN_NAME' } };
+      }
+      if (updates.occupation && profileFieldContainsContactInfo(updates.occupation)) {
+        return { data: null, error: { message: 'Contact information cannot be added to your occupation.', code: 'CONTACT_INFO_IN_FIELD' } };
+      }
     }
 
     const { data, error } = await supabase

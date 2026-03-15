@@ -185,8 +185,13 @@ Contact info detection and blocking to prevent users from sharing phone numbers,
 ### Phone patterns — Africa-first
 Nigeria, Ghana, Kenya, South Africa, UK, US/Canada, Egypt, Tanzania, Uganda, Ivory Coast, Senegal, plus generic 10-digit fallback.
 
-### Founder bypass
-Not yet implemented in client-side code (no `is_founder` field on user profile yet). When the founder system is built, add `is_founder` check before calling `filterChatMessage()` and `profileFieldContainsContactInfo()`.
+### Founder bypass (COMPLETE)
+- `is_founder` boolean column on `users` table (default false)
+- `is_founder` field on `UserProfile` interface
+- Client-side: `sendMessage()`, `sendSayHi()`, `editMessage()`, `sendVaultMessage()` accept `isFounder` param — skips `filterChatMessage()` when true
+- Client-side: `updateProfile()` in AuthProvider skips `profileFieldContainsContactInfo()` when `profile.is_founder` is true
+- Server-side: both Postgres triggers (`trg_redact_contact_info`, `trg_block_contact_info_in_profile`) check `is_founder` and skip all checks when true
+- To grant founder status: `UPDATE users SET is_founder = true WHERE id = '<user-uuid>';`
 
 ### Future layers (not yet implemented)
 - **Layer 2**: Drip-feed accumulator — track violation frequency per user per month via `buildViolationKey()`

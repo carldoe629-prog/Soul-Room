@@ -144,9 +144,9 @@ export async function fetchMessages(conversationId: string, limit = 50) {
   return (data || []).reverse();
 }
 
-export async function sendMessage(conversationId: string, senderId: string, content: string, type = 'text') {
-  // Silent redaction — sender sees success, receiver sees redacted version
-  const filtered = type === 'text' ? filterChatMessage(content) : null;
+export async function sendMessage(conversationId: string, senderId: string, content: string, type = 'text', isFounder = false) {
+  // Silent redaction — sender sees success, receiver sees redacted version (founders bypass)
+  const filtered = type === 'text' && !isFounder ? filterChatMessage(content) : null;
   const storedContent = filtered?.redactedContent ?? content;
 
   const { data, error } = await supabase
@@ -248,9 +248,9 @@ export async function createSpark(fromId: string, toId: string, score: number) {
 
 // ===== SAY HI REQUESTS =====
 
-export async function sendSayHi(senderId: string, receiverId: string, message: string, vpCost = 0) {
-  // Silent redaction on Say Hi messages
-  const filtered = filterChatMessage(message);
+export async function sendSayHi(senderId: string, receiverId: string, message: string, vpCost = 0, isFounder = false) {
+  // Silent redaction on Say Hi messages (founders bypass)
+  const filtered = isFounder ? { redactedContent: message } : filterChatMessage(message);
   const { data, error } = await supabase
     .from('say_hi_requests')
     .insert({ sender_id: senderId, receiver_id: receiverId, message: filtered.redactedContent, vp_cost: vpCost })
@@ -564,9 +564,9 @@ export async function fetchMessagesWithReactions(conversationId: string, limit =
 }
 
 /** Send a view-once (vault) message */
-export async function sendVaultMessage(conversationId: string, senderId: string, content: string, type = 'text') {
-  // Silent redaction on vault messages too
-  const filtered = type === 'text' ? filterChatMessage(content) : null;
+export async function sendVaultMessage(conversationId: string, senderId: string, content: string, type = 'text', isFounder = false) {
+  // Silent redaction on vault messages too (founders bypass)
+  const filtered = type === 'text' && !isFounder ? filterChatMessage(content) : null;
   const storedContent = filtered?.redactedContent ?? content;
 
   const { data, error } = await supabase
@@ -583,9 +583,9 @@ export async function sendVaultMessage(conversationId: string, senderId: string,
 }
 
 /** Edit a message. Caller must verify time window before calling. */
-export async function editMessage(messageId: string, newContent: string, editorId: string) {
-  // Silent redaction on edited content
-  const filtered = filterChatMessage(newContent);
+export async function editMessage(messageId: string, newContent: string, editorId: string, isFounder = false) {
+  // Silent redaction on edited content (founders bypass)
+  const filtered = isFounder ? { redactedContent: newContent } : filterChatMessage(newContent);
   const redacted = filtered.redactedContent;
 
   const { data: msg } = await supabase

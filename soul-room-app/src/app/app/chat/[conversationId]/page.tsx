@@ -572,7 +572,7 @@ export default function ConversationPage() {
       setText('');
       setEditingMsg(null);
       try {
-        await editMessage(editingMsg.id, trimmed, user.id);
+        await editMessage(editingMsg.id, trimmed, user.id, isFounder);
         updateMessage({ id: editingMsg.id, content: trimmed, edited_at: new Date().toISOString() });
       } catch {
         setText(trimmed);
@@ -600,7 +600,7 @@ export default function ConversationPage() {
           await deductVP(user.id, 50, 'vault_photo', 'Vault photo message').catch(() => {});
         }
       }
-      const msg = await sendFn(conversationId, user.id, prefix);
+      const msg = await sendFn(conversationId, user.id, prefix, 'text', isFounder);
       setMessages((prev) => [...prev, { ...(msg as Msg), reactions: [] }]);
     } catch {
       setText(prefix);

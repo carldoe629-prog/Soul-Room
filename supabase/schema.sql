@@ -31,6 +31,7 @@ create table if not exists public.users (
   trust_score         int not null default 50,
   vibe_rating         numeric(3,1) not null default 0,
   vibe_rating_count   int not null default 0,
+  is_founder          boolean not null default false,
   is_verified         boolean not null default false,
   is_online           boolean not null default false,
   last_online_at      timestamptz,

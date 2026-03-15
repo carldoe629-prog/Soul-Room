@@ -26,6 +26,7 @@ export interface UserProfile {
   trust_score: number;
   vibe_rating: number;
   vibe_rating_count: number;
+  is_founder: boolean;
   is_verified: boolean;
   is_online: boolean;
   last_online_at: string | null;
