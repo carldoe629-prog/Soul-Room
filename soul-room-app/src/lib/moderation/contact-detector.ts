@@ -47,6 +47,40 @@ const PLATFORM_KEYWORDS_PROFILE = [
   /\b(twitter|tiktok|facebook|fb)\b[\s:@]*/i,
 ];
 
+// ── Unicode normalization — defeats homoglyph & zero-width bypasses ──
+// Strips zero-width chars, normalizes Cyrillic/Greek lookalikes to Latin,
+// collapses whitespace, and applies NFKD decomposition.
+const ZERO_WIDTH_RE = /[\u200B\u200C\u200D\u200E\u200F\uFEFF\u00AD\u034F\u2028\u2029\u2060\u2061\u2062\u2063\u2064\u2066\u2067\u2068\u2069\u206A\u206B\u206C\u206D\u206E\u206F]/g;
+
+// Common Cyrillic/Greek → Latin homoglyph map
+const HOMOGLYPH_MAP: Record<string, string> = {
+  '\u0410': 'A', '\u0430': 'a', '\u0412': 'B', '\u0435': 'e', '\u0415': 'E',
+  '\u041A': 'K', '\u043A': 'k', '\u041C': 'M', '\u041D': 'H', '\u043E': 'o',
+  '\u041E': 'O', '\u0420': 'P', '\u0440': 'p', '\u0421': 'C', '\u0441': 'c',
+  '\u0422': 'T', '\u0443': 'y', '\u0425': 'X', '\u0445': 'x', '\u0456': 'i',
+  '\u0406': 'I', '\u0458': 'j', '\u0408': 'J',
+  // Greek
+  '\u0391': 'A', '\u03B1': 'a', '\u0392': 'B', '\u03B2': 'b', '\u0395': 'E',
+  '\u03B5': 'e', '\u0397': 'H', '\u0399': 'I', '\u03B9': 'i', '\u039A': 'K',
+  '\u03BA': 'k', '\u039C': 'M', '\u039D': 'N', '\u039F': 'O', '\u03BF': 'o',
+  '\u03A1': 'P', '\u03C1': 'p', '\u03A4': 'T', '\u03C4': 't', '\u03A5': 'Y',
+  '\u03C5': 'y', '\u03A7': 'X', '\u03C7': 'x', '\u0396': 'Z', '\u03B6': 'z',
+};
+const HOMOGLYPH_RE = new RegExp('[' + Object.keys(HOMOGLYPH_MAP).join('') + ']', 'g');
+
+function normalizeText(text: string): string {
+  let s = text;
+  // 1. Strip zero-width and invisible characters
+  s = s.replace(ZERO_WIDTH_RE, '');
+  // 2. NFKD decomposition (fullwidth → ASCII, ligatures → parts)
+  s = s.normalize('NFKD');
+  // 3. Replace known homoglyphs
+  s = s.replace(HOMOGLYPH_RE, (ch) => HOMOGLYPH_MAP[ch] || ch);
+  // 4. Collapse repeated whitespace
+  s = s.replace(/\s+/g, ' ');
+  return s;
+}
+
 export interface FilterResult {
   isClean: boolean;
   redactedContent: string;
@@ -58,13 +92,15 @@ export interface FilterResult {
 // The receiver sees the redacted version.
 // The sender never knows the filter fired.
 export function filterChatMessage(content: string): FilterResult {
+  // Normalize to defeat homoglyph / zero-width bypasses
+  const normalized = normalizeText(content);
   let redacted = content;
   let detectionType: string | null = null;
 
-  // Phone numbers
+  // Phone numbers (test against normalized, redact in original)
   for (const pattern of PHONE_PATTERNS) {
     pattern.lastIndex = 0;
-    if (pattern.test(content)) {
+    if (pattern.test(normalized)) {
       detectionType = 'phone';
       pattern.lastIndex = 0;
       redacted = redacted.replace(pattern, '[Contact info protected by Soul Room]');
@@ -74,7 +110,7 @@ export function filterChatMessage(content: string): FilterResult {
 
   // Email
   EMAIL_PATTERN.lastIndex = 0;
-  if (EMAIL_PATTERN.test(content)) {
+  if (EMAIL_PATTERN.test(normalized)) {
     detectionType = detectionType ?? 'email';
     EMAIL_PATTERN.lastIndex = 0;
     redacted = redacted.replace(EMAIL_PATTERN, '[Contact info protected by Soul Room]');
@@ -83,7 +119,7 @@ export function filterChatMessage(content: string): FilterResult {
 
   // At-sign handles
   HANDLE_PATTERN.lastIndex = 0;
-  if (HANDLE_PATTERN.test(content)) {
+  if (HANDLE_PATTERN.test(normalized)) {
     detectionType = detectionType ?? 'handle';
     HANDLE_PATTERN.lastIndex = 0;
     redacted = redacted.replace(HANDLE_PATTERN, '[Handle protected by Soul Room]');
@@ -93,7 +129,7 @@ export function filterChatMessage(content: string): FilterResult {
   // URLs
   for (const pattern of URL_PATTERNS) {
     pattern.lastIndex = 0;
-    if (pattern.test(content)) {
+    if (pattern.test(normalized)) {
       detectionType = detectionType ?? 'url';
       pattern.lastIndex = 0;
       redacted = redacted.replace(pattern, '[Link protected by Soul Room]');
@@ -112,29 +148,30 @@ export function filterChatMessage(content: string): FilterResult {
 // Used for bios, display names, usernames.
 // Includes platform keyword detection (unlike chat filter).
 export function profileFieldContainsContactInfo(text: string): boolean {
+  const normalized = normalizeText(text);
   // Check phone
   for (const p of PHONE_PATTERNS) {
     p.lastIndex = 0;
-    if (p.test(text)) { p.lastIndex = 0; return true; }
+    if (p.test(normalized)) { p.lastIndex = 0; return true; }
     p.lastIndex = 0;
   }
   // Check email
   EMAIL_PATTERN.lastIndex = 0;
-  if (EMAIL_PATTERN.test(text)) { EMAIL_PATTERN.lastIndex = 0; return true; }
+  if (EMAIL_PATTERN.test(normalized)) { EMAIL_PATTERN.lastIndex = 0; return true; }
   EMAIL_PATTERN.lastIndex = 0;
   // Check handles
   HANDLE_PATTERN.lastIndex = 0;
-  if (HANDLE_PATTERN.test(text)) { HANDLE_PATTERN.lastIndex = 0; return true; }
+  if (HANDLE_PATTERN.test(normalized)) { HANDLE_PATTERN.lastIndex = 0; return true; }
   HANDLE_PATTERN.lastIndex = 0;
   // Check URLs
   for (const p of URL_PATTERNS) {
     p.lastIndex = 0;
-    if (p.test(text)) { p.lastIndex = 0; return true; }
+    if (p.test(normalized)) { p.lastIndex = 0; return true; }
     p.lastIndex = 0;
   }
   // Check platform keywords (profile only)
   for (const p of PLATFORM_KEYWORDS_PROFILE) {
-    if (p.test(text)) return true;
+    if (p.test(normalized)) return true;
   }
   return false;
 }

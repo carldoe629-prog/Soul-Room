@@ -346,6 +346,31 @@ export default function ProfilePage() {
         </Link>
       </div>
 
+      {/* ── Daily Reward ── */}
+      <div className="px-4 mt-4">
+        <Link
+          href="/app/daily-reward"
+          className="block p-4 rounded-2xl bg-gradient-to-r from-amber-900/40 to-orange-900/40 border border-amber-500/15 hover:border-amber-500/30 transition-all"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">🔥</span>
+              <div>
+                <div className="text-sm font-bold text-text-primary">Daily Reward</div>
+                <div className="text-xs text-text-secondary">
+                  {profile?.login_streak
+                    ? `${profile.login_streak} day streak`
+                    : 'Start your streak!'}
+                </div>
+              </div>
+            </div>
+            <div className="px-3 py-1.5 rounded-full gradient-accent text-white text-xs font-bold">
+              Claim
+            </div>
+          </div>
+        </Link>
+      </div>
+
       {/* ── Daily Challenge ── */}
       {activeChallenge && (
         <div className="px-4 mt-4">

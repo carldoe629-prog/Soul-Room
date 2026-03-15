@@ -35,6 +35,8 @@ create table if not exists public.users (
   is_verified         boolean not null default false,
   is_online           boolean not null default false,
   last_online_at      timestamptz,
+  login_streak        int not null default 0,
+  last_login_date     date,
   profile_completeness int not null default 0,
   referral_code       text unique,
   avatar_url          text,
@@ -200,14 +202,90 @@ create policy "Users can read messages in their conversations" on public.message
       and (c.user_a = auth.uid() or c.user_b = auth.uid())
     )
   );
-create policy "Users can send messages" on public.messages
-  for insert with check (auth.uid() = sender_id);
-create policy "Users can mark messages as read" on public.messages
-  for update using (
-    exists (
+create policy "Users can send messages in their conversations" on public.messages
+  for insert with check (
+    auth.uid() = sender_id
+    and exists (
       select 1 from public.conversations c
       where c.id = conversation_id
       and (c.user_a = auth.uid() or c.user_b = auth.uid())
+    )
+  );
+create policy "Users can update their own messages" on public.messages
+  for update using (
+    auth.uid() = sender_id
+  );
+
+
+-- ============================================================
+-- 7a. MESSAGE REACTIONS
+-- ============================================================
+create table if not exists public.message_reactions (
+  id              uuid primary key default uuid_generate_v4(),
+  message_id      uuid not null references public.messages(id) on delete cascade,
+  user_id         uuid not null references public.users(id) on delete cascade,
+  emoji           text not null,
+  created_at      timestamptz not null default now(),
+  unique (message_id, user_id, emoji)
+);
+
+alter table public.message_reactions enable row level security;
+
+create policy "Users can read reactions in their conversations" on public.message_reactions
+  for select using (
+    exists (
+      select 1 from public.messages m
+      join public.conversations c on c.id = m.conversation_id
+      where m.id = message_id
+      and (c.user_a = auth.uid() or c.user_b = auth.uid())
+    )
+  );
+
+create policy "Users can add reactions in their conversations" on public.message_reactions
+  for insert with check (
+    auth.uid() = user_id
+    and exists (
+      select 1 from public.messages m
+      join public.conversations c on c.id = m.conversation_id
+      where m.id = message_id
+      and (c.user_a = auth.uid() or c.user_b = auth.uid())
+    )
+  );
+
+create policy "Users can remove their own reactions" on public.message_reactions
+  for delete using (auth.uid() = user_id);
+
+
+-- ============================================================
+-- 7b. MESSAGE EDITS (audit trail)
+-- ============================================================
+create table if not exists public.message_edits (
+  id              uuid primary key default uuid_generate_v4(),
+  message_id      uuid not null references public.messages(id) on delete cascade,
+  old_content     text not null,
+  new_content     text not null,
+  edited_by       uuid not null references public.users(id) on delete cascade,
+  edited_at       timestamptz not null default now()
+);
+
+alter table public.message_edits enable row level security;
+
+create policy "Users can read edits in their conversations" on public.message_edits
+  for select using (
+    exists (
+      select 1 from public.messages m
+      join public.conversations c on c.id = m.conversation_id
+      where m.id = message_id
+      and (c.user_a = auth.uid() or c.user_b = auth.uid())
+    )
+  );
+
+create policy "Users can insert edits for their own messages" on public.message_edits
+  for insert with check (
+    auth.uid() = edited_by
+    and exists (
+      select 1 from public.messages m
+      where m.id = message_id and m.sender_id = auth.uid()
     )
   );
 
@@ -511,20 +589,32 @@ create policy "Users can read their reports" on public.reports
 -- 23. RPC FUNCTIONS
 -- ============================================================
 
--- Atomically deduct VP
+-- Atomically deduct VP (auth-guarded: caller can only deduct from own account)
 create or replace function public.deduct_vp(p_user_id uuid, p_amount int)
 returns void language plpgsql security definer as $$
 begin
+  if auth.uid() is distinct from p_user_id then
+    raise exception 'Unauthorized: cannot modify another user''s VP' using errcode = 'P0001';
+  end if;
+  if p_amount <= 0 then
+    raise exception 'Amount must be positive' using errcode = 'P0001';
+  end if;
   update public.users
   set vibe_points = greatest(0, vibe_points - p_amount)
   where id = p_user_id;
 end;
 $$;
 
--- Atomically add VP
+-- Atomically add VP (auth-guarded: caller can only add to own account)
 create or replace function public.add_vp(p_user_id uuid, p_amount int)
 returns void language plpgsql security definer as $$
 begin
+  if auth.uid() is distinct from p_user_id then
+    raise exception 'Unauthorized: cannot modify another user''s VP' using errcode = 'P0001';
+  end if;
+  if p_amount <= 0 then
+    raise exception 'Amount must be positive' using errcode = 'P0001';
+  end if;
   update public.users
   set vibe_points = vibe_points + p_amount
   where id = p_user_id;
@@ -538,6 +628,166 @@ begin
   update public.rooms
   set listener_count = listener_count + 1
   where id = room_id;
+end;
+$$;
+
+-- Atomically claim daily reward — prevents double-claims via row lock
+-- Returns: already_claimed, vp_awarded, bonus_vp, new_streak, account_age_days, is_founder
+create or replace function public.claim_daily_reward(p_user_id uuid)
+returns jsonb language plpgsql security definer as $$
+declare
+  u record;
+  today_str date := current_date;
+  new_streak int := 1;
+  days_diff int;
+  account_age int;
+  base_vp int;
+  bonus_vp int := 0;
+  total_vp int;
+  login_xp int := 10;
+  streak_xp int := 0;
+  total_xp_award int;
+  new_total_xp int;
+  new_vip int;
+begin
+  -- Auth guard: only callable for own account
+  if auth.uid() is distinct from p_user_id then
+    raise exception 'Unauthorized: cannot claim reward for another user' using errcode = 'P0001';
+  end if;
+
+  -- Lock the row to prevent concurrent claims
+  select login_streak, last_login_date, created_at, is_founder
+    into u
+    from public.users
+    where id = p_user_id
+    for update;
+
+  if not found then
+    return jsonb_build_object('error', 'User not found');
+  end if;
+
+  -- Already claimed today?
+  if u.last_login_date = today_str then
+    return jsonb_build_object(
+      'already_claimed', true,
+      'streak', u.login_streak,
+      'vp_awarded', 0,
+      'bonus_vp', 0,
+      'total_vp', 0,
+      'is_founder', u.is_founder
+    );
+  end if;
+
+  -- Calculate streak
+  if u.last_login_date is not null then
+    days_diff := today_str - u.last_login_date;
+    if days_diff = 1 then
+      new_streak := coalesce(u.login_streak, 0) + 1;
+    end if;
+    -- days_diff > 1 means broken streak, resets to 1
+  end if;
+
+  -- Account age in days
+  account_age := today_str - u.created_at::date;
+
+  -- Base VP by account age (founders always get max)
+  if u.is_founder then
+    base_vp := 100;
+  elsif account_age <= 7 then
+    base_vp := 100;
+  elsif account_age <= 30 then
+    base_vp := 75;
+  else
+    base_vp := 50;
+  end if;
+
+  -- Streak milestone bonuses
+  case new_streak
+    when 7  then bonus_vp := 500;
+    when 14 then bonus_vp := 750;
+    when 30 then bonus_vp := 1500;
+    when 60 then bonus_vp := 2000;
+    when 90 then bonus_vp := 3000;
+    else bonus_vp := 0;
+  end case;
+
+  total_vp := base_vp + bonus_vp;
+
+  -- Streak milestone XP bonuses
+  case new_streak
+    when 7  then streak_xp := 50;
+    when 14 then streak_xp := 100;
+    when 30 then streak_xp := 250;
+    when 60 then streak_xp := 300;
+    when 90 then streak_xp := 400;
+    else streak_xp := 0;
+  end case;
+  total_xp_award := login_xp + streak_xp;
+
+  -- Calculate new VIP level from total XP
+  select total_xp + total_xp_award into new_total_xp from public.users where id = p_user_id;
+  new_vip := case
+    when new_total_xp >= 1000000 then 8
+    when new_total_xp >= 500000  then 7
+    when new_total_xp >= 250000  then 6
+    when new_total_xp >= 100000  then 5
+    when new_total_xp >= 40000   then 4
+    when new_total_xp >= 15000   then 3
+    when new_total_xp >= 5000    then 2
+    when new_total_xp >= 1000    then 1
+    else 0
+  end;
+
+  -- Credit VP + XP atomically
+  update public.users
+    set vibe_points = vibe_points + total_vp,
+        total_xp = new_total_xp,
+        monthly_xp = monthly_xp + total_xp_award,
+        vip_level = new_vip,
+        login_streak = new_streak,
+        last_login_date = today_str
+    where id = p_user_id;
+
+  -- Record VP transaction
+  insert into public.vp_transactions (user_id, amount, type, description)
+  values (
+    p_user_id,
+    total_vp,
+    'daily_reward',
+    case when bonus_vp > 0
+      then 'Day ' || new_streak || ' streak milestone 🔥 +' || bonus_vp || ' bonus VP'
+      else 'Day ' || new_streak || ' login'
+    end
+  );
+
+  return jsonb_build_object(
+    'already_claimed', false,
+    'streak', new_streak,
+    'vp_awarded', base_vp,
+    'bonus_vp', bonus_vp,
+    'total_vp', total_vp,
+    'xp_awarded', total_xp_award,
+    'account_age_days', account_age,
+    'is_founder', u.is_founder,
+    'streak_milestone', bonus_vp > 0
+  );
+end;
+$$;
+
+-- Reset broken streaks — run daily via pg_cron at 02:00 UTC
+-- Resets login_streak to 0 for users who missed yesterday
+create or replace function public.reset_broken_streaks()
+returns int language plpgsql security definer as $$
+declare
+  reset_count int;
+begin
+  update public.users
+    set login_streak = 0
+    where last_login_date < current_date - 1
+      and login_streak > 0;
+
+  get diagnostics reset_count = row_count;
+  return reset_count;
 end;
 $$;
 

@@ -41,6 +41,9 @@ create table if not exists public.users (
   hide_last_seen      boolean not null default false,
   invisible_browsing  boolean not null default false,
   read_receipt_control boolean not null default false,
+  is_founder          boolean not null default false,
+  login_streak        int not null default 0,
+  last_login_date     date,
   created_at          timestamptz not null default now(),
   updated_at          timestamptz not null default now()
 );
@@ -537,6 +540,62 @@ begin
   update public.rooms
   set listener_count = listener_count + 1
   where id = room_id;
+end;
+$$;
+
+-- Claim daily reward and manage streaks
+create or replace function public.claim_daily_reward(p_user_id uuid)
+returns jsonb language plpgsql security definer as $$
+declare
+  v_last_login date;
+  v_streak int;
+  v_already_claimed boolean := false;
+  v_vp_awarded int := 100; -- Base reward
+  v_bonus_vp int := 0;
+  v_today date := current_date;
+begin
+  select last_login_date, login_streak into v_last_login, v_streak
+  from public.users where id = p_user_id;
+
+  if v_last_login = v_today then
+    v_already_claimed := true;
+  elsif v_last_login = v_today - interval '1 day' then
+    v_streak := v_streak + 1;
+  else
+    v_streak := 1;
+  end if;
+
+  if not v_already_claimed then
+    -- Check for milestone bonuses (7, 14, 30, 60, 90)
+    if v_streak in (7, 14, 30, 60, 90) then
+      v_bonus_vp := case 
+        when v_streak = 7 then 500
+        when v_streak = 14 then 1000
+        when v_streak = 30 then 2500
+        else 5000
+      end;
+    end if;
+
+    update public.users
+    set 
+      vibe_points = vibe_points + v_vp_awarded + v_bonus_vp,
+      login_streak = v_streak,
+      last_login_date = v_today,
+      updated_at = now()
+    where id = p_user_id;
+
+    -- Record transaction
+    insert into public.vp_transactions (user_id, amount, type, description)
+    values (p_user_id, v_vp_awarded + v_bonus_vp, 'daily_reward', 'Daily reward streak: ' || v_streak);
+  end if;
+
+  return jsonb_build_object(
+    'already_claimed', v_already_claimed,
+    'streak', v_streak,
+    'vp_awarded', v_vp_awarded,
+    'bonus_vp', v_bonus_vp,
+    'total_vp', v_vp_awarded + v_bonus_vp
+  );
 end;
 $$;
 

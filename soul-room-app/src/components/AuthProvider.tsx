@@ -36,6 +36,8 @@ const DEMO_PROFILE: UserProfile = {
   is_verified: true,
   is_online: true,
   last_online_at: new Date().toISOString(),
+  login_streak: 5,
+  last_login_date: new Date().toISOString().split('T')[0],
   profile_completeness: 85,
   referral_code: 'DEMO2026',
   avatar_url: null,
@@ -73,8 +75,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (didInit.current) return;
     didInit.current = true;
 
-    // Check for demo mode first (no Supabase calls needed)
-    const demo = typeof window !== 'undefined' && localStorage.getItem('soulroom_demo') === 'true';
+    // Check for demo mode first (no Supabase calls needed) — only available in dev
+    const demo = process.env.NODE_ENV === 'development'
+      && typeof window !== 'undefined'
+      && localStorage.getItem('soulroom_demo') === 'true';
     if (demo) {
       setIsDemoMode(true);
       setAuthUser(DEMO_USER);

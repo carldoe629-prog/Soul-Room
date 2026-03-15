@@ -30,6 +30,8 @@ export interface UserProfile {
   is_verified: boolean;
   is_online: boolean;
   last_online_at: string | null;
+  login_streak: number;
+  last_login_date: string | null;
   profile_completeness: number;
   referral_code: string;
   avatar_url: string | null;

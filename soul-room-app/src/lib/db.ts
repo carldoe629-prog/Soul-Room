@@ -379,6 +379,66 @@ export async function fetchVPTransactions(userId: string, limit = 20) {
   return data || [];
 }
 
+// ===== DAILY REWARD =====
+
+export interface DailyRewardResult {
+  alreadyClaimed: boolean;
+  vpAwarded: number;
+  bonusVp: number;
+  totalVp: number;
+  streak: number;
+  streakMilestone: boolean;
+  nextRewardAt: string;
+}
+
+export async function claimDailyReward(userId: string): Promise<DailyRewardResult> {
+  const { data, error } = await supabase.rpc('claim_daily_reward', { p_user_id: userId });
+  if (error) throw error;
+
+  const result = data as {
+    already_claimed: boolean;
+    streak: number;
+    vp_awarded: number;
+    bonus_vp: number;
+    total_vp: number;
+    xp_awarded?: number;
+    streak_milestone?: boolean;
+    error?: string;
+  };
+
+  if (result.error) throw new Error(result.error);
+
+  // Calculate next reward time (midnight tomorrow)
+  const now = new Date();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  tomorrow.setHours(0, 0, 0, 0);
+
+  if (result.already_claimed) {
+    return {
+      alreadyClaimed: true,
+      vpAwarded: 0,
+      bonusVp: 0,
+      totalVp: 0,
+      streak: result.streak,
+      streakMilestone: false,
+      nextRewardAt: tomorrow.toISOString(),
+    };
+  }
+
+  // VP + XP are both awarded atomically inside the RPC — no client-side XP calls needed
+
+  return {
+    alreadyClaimed: false,
+    vpAwarded: result.vp_awarded,
+    bonusVp: result.bonus_vp,
+    totalVp: result.total_vp,
+    streak: result.streak,
+    streakMilestone: result.bonus_vp > 0,
+    nextRewardAt: tomorrow.toISOString(),
+  };
+}
+
 // ===== VIP / XP =====
 
 export async function addXP(userId: string, xpAmount: number) {

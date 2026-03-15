@@ -42,6 +42,7 @@ soul-room-app/
 │   │   │   ├── worlds/           # World browser + rooms
 │   │   │   │   └── [worldId]/rooms/[roomId]/  # Live room
 │   │   │   ├── profile/          # Own profile + [userId] public profile
+│   │   │   ├── daily-reward/     # Daily VP claim + streak display
 │   │   │   ├── subscribe/        # Subscription/paywall
 │   │   │   ├── vip-level/        # VIP progression
 │   │   │   └── vp/               # VP transactions
@@ -166,6 +167,49 @@ Three sections: Spark Matches carousel → People Online (Discover grid) → Liv
 ### ThemeProvider
 - Must have explicit `: ThemeContextType` return type on `useTheme()` to satisfy TypeScript strict mode
 - `setTheme` call sites must cast: `(isDark ? 'light' : 'dark') as Theme`
+
+## Daily VP Grants & Streak Tracking (COMPLETE)
+
+### Overview
+Users earn VP daily with account-age-based tiers and streak milestone bonuses. Founders always receive max daily grant (100 VP).
+
+### Core function: `claimDailyReward(userId)` in `src/lib/db.ts`
+Calls the atomic `claim_daily_reward` Postgres RPC (row-locked to prevent double-claims).
+
+### VP tiers by account age
+| Account age | Base VP |
+|---|---|
+| Days 1–7 (honeymoon) | 100 VP |
+| Days 8–30 (tapering) | 75 VP |
+| Days 31+ (baseline) | 50 VP |
+| **Founder** (any age) | **100 VP** |
+
+### Streak milestone bonuses (one-time on top of daily)
+| Streak | VP Bonus | XP Bonus |
+|---|---|---|
+| 7 days | +500 VP | +50 XP |
+| 14 days | +750 VP | +100 XP |
+| 30 days | +1,500 VP | +250 XP |
+| 60 days | +2,000 VP | +300 XP |
+| 90 days | +3,000 VP | +400 XP |
+
+### Streak break detection
+- If `last_login_date` is yesterday → streak increments
+- If `last_login_date` is >1 day ago → streak resets to 1
+- `reset_broken_streaks()` Postgres function zeroes streaks for users who missed yesterday — schedule via `pg_cron` at 02:00 UTC daily: `SELECT cron.schedule('reset-streaks', '0 2 * * *', 'SELECT public.reset_broken_streaks()');`
+
+### Database columns (on `users` table)
+- `login_streak` INT NOT NULL DEFAULT 0
+- `last_login_date` DATE (nullable — null until first claim)
+
+### UI
+- Daily Reward tile on Me/Profile tab → navigates to `/app/daily-reward`
+- `/app/daily-reward` page: calls `claimDailyReward()` on mount, shows streak count, VP awarded, milestone celebration, "already claimed" state with countdown
+
+### Gotchas
+- **DATE vs TIMESTAMPTZ**: `last_login_date` is a DATE column. The RPC compares with `current_date` (Postgres DATE), not a full ISO timestamp. Streak calculation uses date subtraction (`today_str - last_login_date`) which returns integer days — no timezone edge cases.
+- **Atomic claim**: The Postgres RPC uses `FOR UPDATE` row lock to prevent concurrent double-claims. VP credit and streak update happen in the same transaction.
+- **XP is awarded client-side** via `addXP()` after the RPC returns — this matches the existing pattern in `db.ts` (static export, no server-side code).
 
 ## Contact Filtering — Layer 1 (COMPLETE)
 
