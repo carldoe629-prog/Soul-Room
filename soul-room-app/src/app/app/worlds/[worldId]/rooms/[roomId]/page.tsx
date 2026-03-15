@@ -73,7 +73,7 @@ export default function VoiceRoomPage() {
   const isSpeakerOrHost = myRole === 'host' || myRole === 'speaker';
 
   // Agora voice
-  const { isJoined: voiceJoined, isMuted, error: voiceError, toggleMute } = useAgoraVoice({
+  const { isJoined: voiceJoined, isMuted, error: voiceError, toggleMute, isSpeaking } = useAgoraVoice({
     channelName: roomId,
     userId: user?.id ?? null,
     role: isSpeakerOrHost ? 'host' : 'audience',
@@ -248,25 +248,26 @@ export default function VoiceRoomPage() {
           <div className="text-center py-3 text-text-tertiary text-xs">No speakers yet</div>
         ) : (
           <div className="grid grid-cols-4 gap-4">
-            {speakers.map((p, i) => {
+            {speakers.map((p) => {
               const avatar = p.user?.photos?.[0];
+              const speaking = isSpeaking(p.user_id);
               return (
                 <div key={p.user_id} className="flex flex-col items-center gap-1.5">
-                  <div className={`relative w-16 h-16 rounded-full overflow-hidden flex items-center justify-center text-2xl ${
-                    i === 0 ? 'ring-2 ring-accent ring-offset-2 ring-offset-dark-900' : 'bg-gradient-to-br from-dark-600 to-dark-800'
+                  <div className={`relative w-16 h-16 rounded-full overflow-hidden flex items-center justify-center text-2xl bg-gradient-to-br from-dark-600 to-dark-800 transition-all duration-200 ${
+                    speaking ? 'ring-2 ring-vibe ring-offset-2 ring-offset-dark-900 shadow-[0_0_12px_rgba(255,75,110,0.5)]' : ''
                   }`}>
                     {avatar ? (
                       <img src={avatar} alt={p.user?.display_name} className="w-full h-full object-cover" />
                     ) : (
                       <span>{p.user?.gender === 'Female' ? '👩🏾' : '👨🏾'}</span>
                     )}
-                    {!p.is_muted && (
+                    {speaking && (
                       <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 flex gap-0.5">
                         {[1, 2, 3].map(b => (
                           <div
                             key={b}
-                            className="w-0.5 bg-vibe rounded-full animate-pulse"
-                            style={{ height: `${4 + b * 2}px`, animationDelay: `${b * 120}ms` }}
+                            className="w-0.5 bg-vibe rounded-full animate-bounce"
+                            style={{ height: `${4 + b * 2}px`, animationDelay: `${b * 80}ms` }}
                           />
                         ))}
                       </div>

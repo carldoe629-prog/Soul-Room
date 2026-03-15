@@ -46,10 +46,14 @@ export function useAgoraVoice({ channelName, userId, role, roomId }: UseAgoraVoi
   const [isJoined, setIsJoined] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Map of numeric Agora UID → speaking boolean
+  const [speakingUids, setSpeakingUids] = useState<Record<number, boolean>>({});
 
   const clientRef   = useRef<any>(null);
   const micTrackRef = useRef<any>(null);
   const joinedRef   = useRef(false);
+  // Store own numeric UID so the room page can match it to a user
+  const ownUidRef   = useRef<number | null>(null);
 
   const join = useCallback(async () => {
     if (!userId || !APP_ID || joinedRef.current) return;
@@ -63,6 +67,7 @@ export function useAgoraVoice({ channelName, userId, role, roomId }: UseAgoraVoi
 
       // Deterministic numeric UID from UUID string
       const uid = Math.abs(userId.split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 0)) % 1_000_000;
+      ownUidRef.current = uid;
 
       // Fetch signed token; fall back to null (works if certificate auth is not yet enforced)
       const token = await fetchAgoraToken(channelName, uid, role);
@@ -74,6 +79,16 @@ export function useAgoraVoice({ channelName, userId, role, roomId }: UseAgoraVoi
         micTrackRef.current = micTrack;
         await client.publish(micTrack);
       }
+
+      // Enable VAD — fires 'volume-indicator' every 2 s with per-UID volumes
+      client.enableAudioVolumeIndicator();
+      client.on('volume-indicator', (volumes: Array<{ uid: number; level: number }>) => {
+        const next: Record<number, boolean> = {};
+        volumes.forEach(({ uid: u, level }) => {
+          next[u] = level > 5; // threshold: >5 = actively speaking
+        });
+        setSpeakingUids(next);
+      });
 
       joinedRef.current = true;
       setIsJoined(true);
@@ -90,8 +105,10 @@ export function useAgoraVoice({ channelName, userId, role, roomId }: UseAgoraVoi
       await clientRef.current?.leave();
       clientRef.current = null;
       joinedRef.current = false;
+      ownUidRef.current = null;
       setIsJoined(false);
       setIsMuted(false);
+      setSpeakingUids({});
     } catch {}
   }, []);
 
@@ -104,11 +121,17 @@ export function useAgoraVoice({ channelName, userId, role, roomId }: UseAgoraVoi
     setParticipantMuted(roomId, userId, next).catch(() => {});
   }, [isMuted, roomId, userId]);
 
+  /** Returns true if the given Soul Room userId is currently speaking */
+  const isSpeaking = useCallback((uid: string): boolean => {
+    const numeric = Math.abs(uid.split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 0)) % 1_000_000;
+    return speakingUids[numeric] ?? false;
+  }, [speakingUids]);
+
   useEffect(() => {
     join();
     return () => { leave(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { isJoined, isMuted, error, toggleMute, leave };
+  return { isJoined, isMuted, error, toggleMute, leave, isSpeaking };
 }
