@@ -319,10 +319,24 @@ create table if not exists public.spark_matches (
 alter table public.spark_matches enable row level security;
 create policy "Users can read their spark matches" on public.spark_matches
   for select using (auth.uid() = user_a or auth.uid() = user_b);
-create policy "Users can create sparks" on public.spark_matches
-  for insert with check (auth.uid() = user_a);
-create policy "Users can update sparks" on public.spark_matches
-  for update using (auth.uid() = user_a or auth.uid() = user_b);
+-- No direct INSERT/UPDATE — all spark operations go through create_spark_secure() RPC
+-- This prevents forced matching (setting status='matched' without mutual consent)
+
+-- Protect spark status: block direct writes from clients
+create or replace function public.protect_spark_status()
+returns trigger language plpgsql security definer as $$
+begin
+  if (current_setting('role') <> 'service_role') then
+    raise exception 'Spark operations must use the create_spark_secure RPC' using errcode = 'P0001';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_spark_write on public.spark_matches;
+create trigger on_spark_write
+  before insert or update on public.spark_matches
+  for each row execute function public.protect_spark_status();
 
 
 -- ============================================================
@@ -385,6 +399,34 @@ create policy "Users can create friendships" on public.friendships
   for insert with check (auth.uid() = user_id);
 create policy "Users can update friendships" on public.friendships
   for update using (auth.uid() = user_id or auth.uid() = friend_id);
+
+-- Protect friendships: only friend_id can accept; only either party can block
+create or replace function public.protect_friendship_status()
+returns trigger language plpgsql security definer as $$
+begin
+  if (current_setting('role') <> 'service_role') then
+    -- Only the recipient (friend_id) can accept a friendship
+    if new.status = 'accepted' and old.status = 'pending' then
+      if auth.uid() is distinct from old.friend_id then
+        raise exception 'Only the recipient can accept a friendship request' using errcode = 'P0001';
+      end if;
+    end if;
+    -- Either party can block, but status can only go pending->accepted or *->blocked
+    if new.status not in ('accepted', 'blocked') and old.status <> new.status then
+      raise exception 'Invalid status transition' using errcode = 'P0001';
+    end if;
+    -- Prevent changing user_id/friend_id
+    new.user_id := old.user_id;
+    new.friend_id := old.friend_id;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_friendship_update on public.friendships;
+create trigger on_friendship_update
+  before update on public.friendships
+  for each row execute function public.protect_friendship_status();
 
 
 -- ============================================================
@@ -517,8 +559,67 @@ create table if not exists public.user_challenges (
 alter table public.user_challenges enable row level security;
 create policy "Users can read their challenges" on public.user_challenges
   for select using (auth.uid() = user_id);
-create policy "System can upsert user challenges" on public.user_challenges
-  for all using (auth.uid() = user_id);
+-- No direct INSERT/UPDATE/DELETE — challenges are managed by RPCs only
+-- Users can only read their own challenges; progress updates go through update_challenge_progress()
+
+-- Protect challenge progress: prevent direct completion/progress manipulation
+create or replace function public.protect_challenge_progress()
+returns trigger language plpgsql security definer as $$
+begin
+  if (current_setting('role') <> 'service_role') then
+    -- Clients cannot set progress or completed_at directly
+    raise exception 'Challenge progress must be updated via RPC' using errcode = 'P0001';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_challenge_write on public.user_challenges;
+create trigger on_challenge_write
+  before insert or update on public.user_challenges
+  for each row execute function public.protect_challenge_progress();
+
+-- RPC: safely increment challenge progress (prevents setting arbitrary values)
+create or replace function public.update_challenge_progress(
+  p_user_id uuid, p_challenge_id uuid, p_increment int default 1
+) returns jsonb language plpgsql security definer as $$
+declare
+  v_record public.user_challenges%rowtype;
+  v_target int;
+begin
+  if auth.uid() is distinct from p_user_id then
+    raise exception 'Unauthorized' using errcode = 'P0001';
+  end if;
+  if p_increment <= 0 then
+    raise exception 'Increment must be positive' using errcode = 'P0001';
+  end if;
+
+  -- Get the challenge target
+  select target into v_target from public.daily_challenges where id = p_challenge_id;
+  if v_target is null then
+    raise exception 'Challenge not found' using errcode = 'P0001';
+  end if;
+
+  -- Upsert the user challenge row (service_role context bypasses trigger)
+  insert into public.user_challenges (user_id, challenge_id, progress)
+  values (p_user_id, p_challenge_id, least(p_increment, v_target))
+  on conflict (user_id, challenge_id, assigned_date)
+  do update set
+    progress = least(public.user_challenges.progress + p_increment, v_target),
+    completed_at = case
+      when public.user_challenges.progress + p_increment >= v_target and public.user_challenges.completed_at is null
+      then now()
+      else public.user_challenges.completed_at
+    end
+  returning * into v_record;
+
+  return jsonb_build_object(
+    'progress', v_record.progress,
+    'target', v_target,
+    'completed', v_record.completed_at is not null
+  );
+end;
+$$;
 
 
 -- ============================================================
