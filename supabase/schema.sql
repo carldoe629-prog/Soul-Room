@@ -31,12 +31,9 @@ create table if not exists public.users (
   trust_score         int not null default 50,
   vibe_rating         numeric(3,1) not null default 0,
   vibe_rating_count   int not null default 0,
-  is_founder          boolean not null default false,
   is_verified         boolean not null default false,
   is_online           boolean not null default false,
   last_online_at      timestamptz,
-  login_streak        int not null default 0,
-  last_login_date     date,
   profile_completeness int not null default 0,
   referral_code       text unique,
   avatar_url          text,
@@ -44,6 +41,9 @@ create table if not exists public.users (
   hide_last_seen      boolean not null default false,
   invisible_browsing  boolean not null default false,
   read_receipt_control boolean not null default false,
+  is_founder          boolean not null default false,
+  login_streak        int not null default 0,
+  last_login_date     date,
   created_at          timestamptz not null default now(),
   updated_at          timestamptz not null default now()
 );
@@ -54,7 +54,13 @@ create policy "Users can read all profiles" on public.users
   for select using (true);
 
 create policy "Users can update own profile" on public.users
-  for update using (auth.uid() = id);
+  for update using (auth.uid() = id)
+  with check (
+    -- Prevent unauthorized modification of economy/access fields
+    (auth.uid() = id) AND
+    (vibe_points = vibe_points) AND -- This logic needs a trigger to be truly secure, 
+    (total_xp = total_xp) -- but we start by documenting intent
+  );
 
 create policy "Users can insert own profile" on public.users
   for insert with check (auth.uid() = id);
@@ -129,8 +135,10 @@ alter table public.room_participants enable row level security;
 create policy "Anyone can read room participants" on public.room_participants for select using (true);
 create policy "Users can join rooms" on public.room_participants
   for insert with check (auth.uid() = user_id);
+-- Users can only update is_muted on themselves (not role). Role changes go through RPC.
 create policy "Users can update own participation" on public.room_participants
-  for update using (auth.uid() = user_id);
+  for update using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
 create policy "Users can leave rooms" on public.room_participants
   for delete using (auth.uid() = user_id);
 
@@ -174,8 +182,10 @@ create table if not exists public.conversations (
 alter table public.conversations enable row level security;
 create policy "Users can read their conversations" on public.conversations
   for select using (auth.uid() = user_a or auth.uid() = user_b);
+-- Caller must be user_a (the initiator) — prevents IDOR impersonation
 create policy "Users can create conversations" on public.conversations
-  for insert with check (auth.uid() = user_a or auth.uid() = user_b);
+  for insert with check (auth.uid() = user_a);
+-- Either party can update, but a trigger protects sensitive columns
 create policy "Users can update their conversations" on public.conversations
   for update using (auth.uid() = user_a or auth.uid() = user_b);
 
@@ -211,9 +221,13 @@ create policy "Users can send messages in their conversations" on public.message
       and (c.user_a = auth.uid() or c.user_b = auth.uid())
     )
   );
-create policy "Users can update their own messages" on public.messages
+create policy "Users can mark messages as read" on public.messages
   for update using (
-    auth.uid() = sender_id
+    exists (
+      select 1 from public.conversations c
+      where c.id = conversation_id
+      and (c.user_a = auth.uid() or c.user_b = auth.uid())
+    )
   );
 
 
@@ -262,9 +276,8 @@ create policy "Users can remove their own reactions" on public.message_reactions
 create table if not exists public.message_edits (
   id              uuid primary key default uuid_generate_v4(),
   message_id      uuid not null references public.messages(id) on delete cascade,
-  old_content     text not null,
-  new_content     text not null,
-  edited_by       uuid not null references public.users(id) on delete cascade,
+  previous_content text not null,
+  editor_id       uuid not null references public.users(id) on delete cascade,
   edited_at       timestamptz not null default now()
 );
 
@@ -282,7 +295,7 @@ create policy "Users can read edits in their conversations" on public.message_ed
 
 create policy "Users can insert edits for their own messages" on public.message_edits
   for insert with check (
-    auth.uid() = edited_by
+    auth.uid() = editor_id
     and exists (
       select 1 from public.messages m
       where m.id = message_id and m.sender_id = auth.uid()
@@ -406,8 +419,8 @@ create table if not exists public.vp_transactions (
 alter table public.vp_transactions enable row level security;
 create policy "Users can read their VP transactions" on public.vp_transactions
   for select using (auth.uid() = user_id);
-create policy "System can insert VP transactions" on public.vp_transactions
-  for insert with check (auth.uid() = user_id);
+-- No direct client INSERT — VP transactions are only created by security definer RPCs
+-- (add_vp_secure, deduct_vp_secure, claim_daily_reward, send_gift_secure, etc.)
 
 
 -- ============================================================
@@ -541,8 +554,7 @@ create table if not exists public.user_achievements (
 alter table public.user_achievements enable row level security;
 create policy "Users can read their achievements" on public.user_achievements
   for select using (auth.uid() = user_id);
-create policy "System can insert achievements" on public.user_achievements
-  for insert with check (auth.uid() = user_id);
+-- No direct client INSERT — achievements are granted by security definer RPCs only
 
 
 -- ============================================================
@@ -589,75 +601,53 @@ create policy "Users can read their reports" on public.reports
 -- 23. RPC FUNCTIONS
 -- ============================================================
 
--- Atomically deduct VP (auth-guarded: caller can only deduct from own account)
-create or replace function public.deduct_vp(p_user_id uuid, p_amount int)
-returns void language plpgsql security definer as $$
-begin
-  if auth.uid() is distinct from p_user_id then
-    raise exception 'Unauthorized: cannot modify another user''s VP' using errcode = 'P0001';
-  end if;
-  if p_amount <= 0 then
-    raise exception 'Amount must be positive' using errcode = 'P0001';
-  end if;
-  update public.users
-  set vibe_points = greatest(0, vibe_points - p_amount)
-  where id = p_user_id;
-end;
-$$;
+-- Ghost RPCs removed — use _secure variants only
+drop function if exists public.deduct_vp(uuid, int);
+drop function if exists public.add_vp(uuid, int);
 
--- Atomically add VP (auth-guarded: caller can only add to own account)
-create or replace function public.add_vp(p_user_id uuid, p_amount int)
+-- Increment room listener count (auth-guarded, caller must be a participant)
+create or replace function public.increment_room_listeners(p_room_id uuid)
 returns void language plpgsql security definer as $$
 begin
-  if auth.uid() is distinct from p_user_id then
-    raise exception 'Unauthorized: cannot modify another user''s VP' using errcode = 'P0001';
+  if auth.uid() is null then
+    raise exception 'Unauthorized' using errcode = 'P0001';
   end if;
-  if p_amount <= 0 then
-    raise exception 'Amount must be positive' using errcode = 'P0001';
+  -- Caller must be a participant of this room
+  if not exists (
+    select 1 from public.room_participants
+    where room_id = p_room_id and user_id = auth.uid()
+  ) then
+    raise exception 'Not a participant of this room' using errcode = 'P0001';
   end if;
-  update public.users
-  set vibe_points = vibe_points + p_amount
-  where id = p_user_id;
-end;
-$$;
-
--- Increment room listener count
-create or replace function public.increment_room_listeners(room_id uuid)
-returns void language plpgsql security definer as $$
-begin
   update public.rooms
   set listener_count = listener_count + 1
-  where id = room_id;
+  where id = p_room_id;
 end;
 $$;
 
--- Atomically claim daily reward — prevents double-claims via row lock
--- Returns: already_claimed, vp_awarded, bonus_vp, new_streak, account_age_days, is_founder
 create or replace function public.claim_daily_reward(p_user_id uuid)
 returns jsonb language plpgsql security definer as $$
 declare
-  u record;
-  today_str date := current_date;
-  new_streak int := 1;
-  days_diff int;
-  account_age int;
-  base_vp int;
-  bonus_vp int := 0;
-  total_vp int;
-  login_xp int := 10;
-  streak_xp int := 0;
-  total_xp_award int;
-  new_total_xp int;
-  new_vip int;
+  v_last_login date;
+  v_streak int;
+  v_is_founder boolean;
+  v_created_at timestamptz;
+  v_already_claimed boolean := false;
+  v_base_vp int;
+  v_bonus_vp int := 0;
+  v_xp_awarded int := 10;
+  v_bonus_xp int := 0;
+  v_account_age int;
+  v_today date := current_date;
 begin
   -- Auth guard: only callable for own account
   if auth.uid() is distinct from p_user_id then
     raise exception 'Unauthorized: cannot claim reward for another user' using errcode = 'P0001';
   end if;
 
-  -- Lock the row to prevent concurrent claims
-  select login_streak, last_login_date, created_at, is_founder
-    into u
+  -- Lock the row to prevent concurrent double-claims
+  select last_login_date, login_streak, is_founder, created_at
+    into v_last_login, v_streak, v_is_founder, v_created_at
     from public.users
     where id = p_user_id
     for update;
@@ -667,129 +657,456 @@ begin
   end if;
 
   -- Already claimed today?
-  if u.last_login_date = today_str then
+  if v_last_login = v_today then
     return jsonb_build_object(
-      'already_claimed', true,
-      'streak', u.login_streak,
-      'vp_awarded', 0,
-      'bonus_vp', 0,
-      'total_vp', 0,
-      'is_founder', u.is_founder
+      'already_claimed', true, 'streak', v_streak,
+      'vp_awarded', 0, 'bonus_vp', 0, 'total_vp', 0,
+      'xp_awarded', 0, 'is_founder', v_is_founder
     );
   end if;
 
   -- Calculate streak
-  if u.last_login_date is not null then
-    days_diff := today_str - u.last_login_date;
-    if days_diff = 1 then
-      new_streak := coalesce(u.login_streak, 0) + 1;
-    end if;
-    -- days_diff > 1 means broken streak, resets to 1
+  if v_last_login is not null and (v_today - v_last_login) = 1 then
+    v_streak := coalesce(v_streak, 0) + 1;
+  else
+    v_streak := 1;
   end if;
 
   -- Account age in days
-  account_age := today_str - u.created_at::date;
+  v_account_age := v_today - v_created_at::date;
 
   -- Base VP by account age (founders always get max)
-  if u.is_founder then
-    base_vp := 100;
-  elsif account_age <= 7 then
-    base_vp := 100;
-  elsif account_age <= 30 then
-    base_vp := 75;
+  if v_is_founder then
+    v_base_vp := 100;
+  elsif v_account_age <= 7 then
+    v_base_vp := 100;
+  elsif v_account_age <= 30 then
+    v_base_vp := 75;
   else
-    base_vp := 50;
+    v_base_vp := 50;
   end if;
 
   -- Streak milestone bonuses
-  case new_streak
-    when 7  then bonus_vp := 500;
-    when 14 then bonus_vp := 750;
-    when 30 then bonus_vp := 1500;
-    when 60 then bonus_vp := 2000;
-    when 90 then bonus_vp := 3000;
-    else bonus_vp := 0;
+  case v_streak
+    when 7  then v_bonus_vp := 500;  v_bonus_xp := 50;
+    when 14 then v_bonus_vp := 750;  v_bonus_xp := 100;
+    when 30 then v_bonus_vp := 1500; v_bonus_xp := 250;
+    when 60 then v_bonus_vp := 2000; v_bonus_xp := 300;
+    when 90 then v_bonus_vp := 3000; v_bonus_xp := 400;
+    else null;
   end case;
-
-  total_vp := base_vp + bonus_vp;
-
-  -- Streak milestone XP bonuses
-  case new_streak
-    when 7  then streak_xp := 50;
-    when 14 then streak_xp := 100;
-    when 30 then streak_xp := 250;
-    when 60 then streak_xp := 300;
-    when 90 then streak_xp := 400;
-    else streak_xp := 0;
-  end case;
-  total_xp_award := login_xp + streak_xp;
-
-  -- Calculate new VIP level from total XP
-  select total_xp + total_xp_award into new_total_xp from public.users where id = p_user_id;
-  new_vip := case
-    when new_total_xp >= 1000000 then 8
-    when new_total_xp >= 500000  then 7
-    when new_total_xp >= 250000  then 6
-    when new_total_xp >= 100000  then 5
-    when new_total_xp >= 40000   then 4
-    when new_total_xp >= 15000   then 3
-    when new_total_xp >= 5000    then 2
-    when new_total_xp >= 1000    then 1
-    else 0
-  end;
 
   -- Credit VP + XP atomically
   update public.users
-    set vibe_points = vibe_points + total_vp,
-        total_xp = new_total_xp,
-        monthly_xp = monthly_xp + total_xp_award,
-        vip_level = new_vip,
-        login_streak = new_streak,
-        last_login_date = today_str
-    where id = p_user_id;
+  set vibe_points = vibe_points + v_base_vp + v_bonus_vp,
+      total_xp = total_xp + v_xp_awarded + v_bonus_xp,
+      monthly_xp = monthly_xp + v_xp_awarded + v_bonus_xp,
+      login_streak = v_streak,
+      last_login_date = v_today,
+      updated_at = now()
+  where id = p_user_id;
 
   -- Record VP transaction
   insert into public.vp_transactions (user_id, amount, type, description)
-  values (
-    p_user_id,
-    total_vp,
-    'daily_reward',
-    case when bonus_vp > 0
-      then 'Day ' || new_streak || ' streak milestone 🔥 +' || bonus_vp || ' bonus VP'
-      else 'Day ' || new_streak || ' login'
+  values (p_user_id, v_base_vp + v_bonus_vp, 'daily_reward',
+    case when v_bonus_vp > 0
+      then 'Day ' || v_streak || ' streak milestone +' || v_bonus_vp || ' bonus VP'
+      else 'Day ' || v_streak || ' login'
     end
   );
 
   return jsonb_build_object(
-    'already_claimed', false,
-    'streak', new_streak,
-    'vp_awarded', base_vp,
-    'bonus_vp', bonus_vp,
-    'total_vp', total_vp,
-    'xp_awarded', total_xp_award,
-    'account_age_days', account_age,
-    'is_founder', u.is_founder,
-    'streak_milestone', bonus_vp > 0
+    'already_claimed', false, 'streak', v_streak,
+    'vp_awarded', v_base_vp, 'bonus_vp', v_bonus_vp,
+    'total_vp', v_base_vp + v_bonus_vp,
+    'xp_awarded', v_xp_awarded + v_bonus_xp,
+    'account_age_days', v_account_age,
+    'is_founder', v_is_founder,
+    'streak_milestone', v_bonus_vp > 0
   );
 end;
 $$;
 
--- Reset broken streaks — run daily via pg_cron at 02:00 UTC
--- Resets login_streak to 0 for users who missed yesterday
+-- Securely add XP (auth-guarded)
+create or replace function public.add_xp_secure(p_user_id uuid, p_amount int)
+returns void language plpgsql security definer as $$
+declare
+  v_total_xp int;
+  v_level int;
+  v_thresholds int[] := array[0, 1000, 5000, 15000, 40000, 100000, 250000, 500000, 1000000];
+begin
+  if auth.uid() is distinct from p_user_id then
+    raise exception 'Unauthorized' using errcode = 'P0001';
+  end if;
+  if p_amount <= 0 then
+    raise exception 'Amount must be positive' using errcode = 'P0001';
+  end if;
+
+  update public.users
+  set total_xp = total_xp + p_amount,
+      monthly_xp = monthly_xp + p_amount
+  where id = p_user_id
+  returning total_xp into v_total_xp;
+
+  -- Calculate level
+  v_level := 0;
+  for i in reverse array_length(v_thresholds, 1)..1 loop
+    if v_total_xp >= v_thresholds[i] then
+      v_level := i - 1;
+      exit;
+    end if;
+  end loop;
+
+  update public.users set vip_level = v_level where id = p_user_id;
+end;
+$$;
+
+-- Securely deduct VP (auth-guarded, own account only)
+create or replace function public.deduct_vp_secure(p_user_id uuid, p_amount int, p_type text, p_description text)
+returns boolean language plpgsql security definer as $$
+declare
+  v_current_vp int;
+begin
+  if auth.uid() is distinct from p_user_id then
+    raise exception 'Unauthorized: cannot deduct from another user' using errcode = 'P0001';
+  end if;
+  if p_amount <= 0 then
+    raise exception 'Amount must be positive' using errcode = 'P0001';
+  end if;
+
+  select vibe_points into v_current_vp from public.users where id = p_user_id for update;
+
+  if v_current_vp < p_amount then
+    return false;
+  end if;
+
+  update public.users
+  set vibe_points = vibe_points - p_amount
+  where id = p_user_id;
+
+  insert into public.vp_transactions (user_id, amount, type, description)
+  values (p_user_id, -p_amount, p_type, p_description);
+
+  return true;
+end;
+$$;
+
+-- Securely add VP (auth-guarded, own account only)
+create or replace function public.add_vp_secure(p_user_id uuid, p_amount int, p_type text, p_description text)
+returns void language plpgsql security definer as $$
+begin
+  if auth.uid() is distinct from p_user_id then
+    raise exception 'Unauthorized: cannot add VP to another user' using errcode = 'P0001';
+  end if;
+  if p_amount <= 0 then
+    raise exception 'Amount must be positive' using errcode = 'P0001';
+  end if;
+
+  update public.users
+  set vibe_points = vibe_points + p_amount
+  where id = p_user_id;
+
+  insert into public.vp_transactions (user_id, amount, type, description)
+  values (p_user_id, p_amount, p_type, p_description);
+end;
+$$;
+
+-- ============================================================
+-- ATOMIC BUSINESS RPCs (auth-guarded)
+-- ============================================================
+
+-- Send gift atomically: deduct VP from sender, credit receiver, log transactions
+create or replace function public.send_gift_secure(
+  p_sender_id uuid, p_receiver_id uuid, p_gift_id text, p_vp_amount int
+) returns jsonb language plpgsql security definer as $$
+declare
+  v_sender_vp int;
+  v_earning_rate numeric := 0.5; -- Receiver gets 50% of gift value
+  v_receiver_credit int;
+begin
+  if auth.uid() is distinct from p_sender_id then
+    raise exception 'Unauthorized' using errcode = 'P0001';
+  end if;
+  if p_vp_amount <= 0 then
+    raise exception 'Amount must be positive' using errcode = 'P0001';
+  end if;
+  if p_sender_id = p_receiver_id then
+    raise exception 'Cannot send gift to yourself' using errcode = 'P0001';
+  end if;
+
+  -- Lock sender row
+  select vibe_points into v_sender_vp from public.users where id = p_sender_id for update;
+  if v_sender_vp < p_vp_amount then
+    return jsonb_build_object('error', 'Insufficient VP');
+  end if;
+
+  v_receiver_credit := floor(p_vp_amount * v_earning_rate)::int;
+
+  -- Deduct from sender
+  update public.users set vibe_points = vibe_points - p_vp_amount where id = p_sender_id;
+  -- Credit receiver
+  update public.users set vibe_points = vibe_points + v_receiver_credit where id = p_receiver_id;
+
+  -- Record gift transaction
+  insert into public.gift_transactions (sender_id, receiver_id, gift_id, vp_amount)
+  values (p_sender_id, p_receiver_id, p_gift_id, p_vp_amount);
+
+  -- Record VP transactions for both parties
+  insert into public.vp_transactions (user_id, amount, type, description) values
+    (p_sender_id, -p_vp_amount, 'gift_sent', 'Sent gift to user'),
+    (p_receiver_id, v_receiver_credit, 'gift_received', 'Received gift');
+
+  -- Update receiver earnings
+  insert into public.user_earnings (user_id, balance_earned_vp, total_lifetime_earned_vp, updated_at)
+  values (p_receiver_id, v_receiver_credit, v_receiver_credit, now())
+  on conflict (user_id) do update set
+    balance_earned_vp = user_earnings.balance_earned_vp + v_receiver_credit,
+    total_lifetime_earned_vp = user_earnings.total_lifetime_earned_vp + v_receiver_credit,
+    updated_at = now();
+
+  return jsonb_build_object('success', true, 'receiver_credit', v_receiver_credit);
+end;
+$$;
+
+-- Send Say Hi atomically: deduct VP + insert request
+create or replace function public.send_say_hi_secure(
+  p_receiver_id uuid, p_message text, p_vp_cost int
+) returns jsonb language plpgsql security definer as $$
+declare
+  v_sender_id uuid := auth.uid();
+  v_sender_vp int;
+begin
+  if v_sender_id is null then
+    raise exception 'Unauthorized' using errcode = 'P0001';
+  end if;
+
+  if p_vp_cost > 0 then
+    select vibe_points into v_sender_vp from public.users where id = v_sender_id for update;
+    if v_sender_vp < p_vp_cost then
+      return jsonb_build_object('error', 'Insufficient VP');
+    end if;
+    update public.users set vibe_points = vibe_points - p_vp_cost where id = v_sender_id;
+    insert into public.vp_transactions (user_id, amount, type, description)
+    values (v_sender_id, -p_vp_cost, 'say_hi', 'Say Hi request');
+  end if;
+
+  insert into public.say_hi_requests (sender_id, receiver_id, message, vp_cost)
+  values (v_sender_id, p_receiver_id, p_message, p_vp_cost);
+
+  return jsonb_build_object('success', true);
+end;
+$$;
+
+-- Create spark atomically: prevent duplicate pending sparks, auto-match if mutual
+create or replace function public.create_spark_secure(
+  p_from_id uuid, p_to_id uuid, p_score int
+) returns jsonb language plpgsql security definer as $$
+declare
+  v_existing_id uuid;
+  v_reverse_id uuid;
+begin
+  if auth.uid() is distinct from p_from_id then
+    raise exception 'Unauthorized' using errcode = 'P0001';
+  end if;
+  if p_from_id = p_to_id then
+    raise exception 'Cannot spark yourself' using errcode = 'P0001';
+  end if;
+
+  -- Check for existing pending spark from this user
+  select id into v_existing_id from public.spark_matches
+  where user_a = p_from_id and user_b = p_to_id and status = 'pending';
+  if v_existing_id is not null then
+    return jsonb_build_object('error', 'Already sparked');
+  end if;
+
+  -- Check for reverse spark (mutual match)
+  select id into v_reverse_id from public.spark_matches
+  where user_a = p_to_id and user_b = p_from_id and status = 'pending'
+  for update;
+
+  if v_reverse_id is not null then
+    -- Mutual match!
+    update public.spark_matches set status = 'matched' where id = v_reverse_id;
+    return jsonb_build_object('matched', true, 'match_id', v_reverse_id);
+  end if;
+
+  -- No reverse spark — create new pending
+  insert into public.spark_matches (user_a, user_b, match_score)
+  values (p_from_id, p_to_id, p_score)
+  returning id into v_existing_id;
+
+  return jsonb_build_object('matched', false, 'spark_id', v_existing_id);
+end;
+$$;
+
+-- Equip item atomically: unequip previous, equip new
+create or replace function public.equip_item_secure(p_item_id uuid, p_user_id uuid)
+returns void language plpgsql security definer as $$
+declare
+  v_item_type text;
+begin
+  if auth.uid() is distinct from p_user_id then
+    raise exception 'Unauthorized' using errcode = 'P0001';
+  end if;
+
+  -- Get the item type of the item being equipped
+  select item_type into v_item_type from public.user_inventory
+  where id = p_item_id and user_id = p_user_id;
+  if not found then
+    raise exception 'Item not found' using errcode = 'P0001';
+  end if;
+
+  -- Unequip all items of the same type
+  update public.user_inventory
+  set is_equipped = false
+  where user_id = p_user_id and item_type = v_item_type and is_equipped = true;
+
+  -- Equip the selected item
+  update public.user_inventory
+  set is_equipped = true
+  where id = p_item_id and user_id = p_user_id;
+end;
+$$;
+
+-- Promote a participant to speaker (host-only RPC)
+create or replace function public.promote_to_speaker(p_room_id uuid, p_user_id uuid)
+returns void language plpgsql security definer as $$
+begin
+  -- Only the room host can promote
+  if not exists (
+    select 1 from public.rooms where id = p_room_id and host_id = auth.uid()
+  ) then
+    raise exception 'Only the room host can promote speakers' using errcode = 'P0001';
+  end if;
+  update public.room_participants
+  set role = 'speaker', is_muted = false
+  where room_id = p_room_id and user_id = p_user_id;
+end;
+$$;
+
+-- Contact info detector for SQL
+create or replace function public.contains_contact_info(p_text text)
+returns boolean language plpgsql immutable as $$
+begin
+  return (
+    p_text ~* '(\+?234|0)[789]\d{9}' OR -- NG
+    p_text ~* '(\+?233|0)[235]\d{8}' OR -- GH
+    p_text ~* '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}' OR -- Email
+    p_text ~* '@[a-zA-Z0-9_.]{3,}' OR -- Handles
+    p_text ~* 'https?://[^\s]+' OR -- URL
+    p_text ~* 'www\.[^\s]+\.[a-z]{2,}' -- URL
+  );
+end;
+$$;
+
+-- Reset broken streaks — system-only (pg_cron at 02:00 UTC)
+-- Blocks client calls: auth.uid() is non-null for client calls, null for service-role/pg_cron
 create or replace function public.reset_broken_streaks()
 returns int language plpgsql security definer as $$
 declare
   reset_count int;
 begin
+  if auth.uid() is not null then
+    raise exception 'This function is for system use only' using errcode = 'P0001';
+  end if;
   update public.users
     set login_streak = 0
     where last_login_date < current_date - 1
       and login_streak > 0;
-
   get diagnostics reset_count = row_count;
   return reset_count;
 end;
 $$;
+
+-- Trigger to protect economy fields and enforce moderation
+create or replace function public.protect_user_fields()
+returns trigger language plpgsql security definer as $$
+begin
+  -- 1. Prevent non-service-role from touching economy/privilege fields
+  if (current_setting('role') <> 'service_role') then
+    new.vibe_points := old.vibe_points;
+    new.total_xp := old.total_xp;
+    new.monthly_xp := old.monthly_xp;
+    new.vip_level := old.vip_level;
+    new.subscription_tier := old.subscription_tier;
+    new.is_founder := old.is_founder;
+    new.is_verified := old.is_verified;
+    new.trust_score := old.trust_score;
+    new.login_streak := old.login_streak;
+    new.last_login_date := old.last_login_date;
+  end if;
+
+  -- 2. Enforce moderation (if not founder)
+  if NOT new.is_founder then
+    if public.contains_contact_info(new.bio) OR 
+       public.contains_contact_info(new.display_name) OR 
+       public.contains_contact_info(new.occupation) then
+      -- If contact info found, we could RAISE EXCEPTION, but 
+      -- James Kettle prefers silent fail or resetting to old value
+      new.bio := old.bio;
+      new.display_name := old.display_name;
+      new.occupation := old.occupation;
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists on_user_update on public.users;
+create trigger on_user_update
+  before update on public.users
+  for each row execute function public.protect_user_fields();
+
+-- Protect room_participants.role from client-side self-promotion
+-- Only the room host (via RPC) or service_role can change roles
+create or replace function public.protect_participant_role()
+returns trigger language plpgsql security definer as $$
+begin
+  if (current_setting('role') <> 'service_role') then
+    -- Check if the caller is the room host
+    if not exists (
+      select 1 from public.rooms
+      where id = new.room_id and host_id = auth.uid()
+    ) then
+      new.role := old.role; -- Revert role change for non-hosts
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_participant_update on public.room_participants;
+create trigger on_participant_update
+  before update on public.room_participants
+  for each row execute function public.protect_participant_role();
+
+-- Protect conversations: only allow status changes by the blocker, prevent last_message tampering
+create or replace function public.protect_conversation_fields()
+returns trigger language plpgsql security definer as $$
+begin
+  if (current_setting('role') <> 'service_role') then
+    -- Only the affected user can change their own unread count / pin
+    if auth.uid() = old.user_a then
+      new.unread_count_b := old.unread_count_b;
+      new.is_pinned_b := old.is_pinned_b;
+    elsif auth.uid() = old.user_b then
+      new.unread_count_a := old.unread_count_a;
+      new.is_pinned_a := old.is_pinned_a;
+    end if;
+    -- Prevent direct status changes (must go through block/report flow)
+    if new.status <> old.status then
+      new.status := old.status;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_conversation_update on public.conversations;
+create trigger on_conversation_update
+  before update on public.conversations
+  for each row execute function public.protect_conversation_fields();
 
 
 -- ============================================================

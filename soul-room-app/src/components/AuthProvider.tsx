@@ -64,7 +64,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const fetchProfile = useCallback(async (userId: string) => {
     const { data } = await supabase
       .from('users')
-      .select('*')
+      .select(`
+        id, display_name, gender, age, bio, city, country, photos, interests, languages,
+        looking_for, occupation, home_world, subscription_tier, vibe_points, vip_level,
+        total_xp, monthly_xp, trust_score, vibe_rating, vibe_rating_count, is_verified,
+        is_online, last_online_at, profile_completeness, referral_code, avatar_url,
+        created_at, updated_at, ghost_mode_enabled, hide_last_seen, invisible_browsing,
+        read_receipt_control, is_founder, daily_streak, last_daily_claim
+      `)
       .eq('id', userId)
       .single();
     if (data) setProfile(data as UserProfile);
@@ -75,7 +82,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (didInit.current) return;
     didInit.current = true;
 
-    // Check for demo mode first (no Supabase calls needed) — only available in dev
     const demo = process.env.NODE_ENV === 'development'
       && typeof window !== 'undefined'
       && localStorage.getItem('soulroom_demo') === 'true';
@@ -121,18 +127,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (isDemoMode) return; // no-op in demo
     if (!authUser) return;
 
-    // Hard-block contact info in profile fields (founders bypass)
-    if (!profile?.is_founder) {
-      if (updates.bio && profileFieldContainsContactInfo(updates.bio)) {
-        return { data: null, error: { message: 'For your safety, phone numbers, social media handles, and links cannot be added to your bio.', code: 'CONTACT_INFO_IN_BIO' } };
-      }
-      if (updates.display_name && profileFieldContainsContactInfo(updates.display_name)) {
-        return { data: null, error: { message: 'Contact information cannot be added to your display name.', code: 'CONTACT_INFO_IN_NAME' } };
-      }
-      if (updates.occupation && profileFieldContainsContactInfo(updates.occupation)) {
-        return { data: null, error: { message: 'Contact information cannot be added to your occupation.', code: 'CONTACT_INFO_IN_FIELD' } };
-      }
-    }
+    // Moderation and economy fields are now protected at the database level via triggers 
+    // and security-definer RPCs. Client-side checks are removed to ensure the "Hard Shell" architecture.
 
     const { data, error } = await supabase
       .from('users')

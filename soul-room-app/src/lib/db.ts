@@ -1,15 +1,30 @@
 import { createClient } from './supabase';
-import { getGiftEarningRate } from './mock-data';
+// getGiftEarningRate is no longer needed client-side — calculation moved to send_gift_secure RPC
 import { filterChatMessage } from './moderation/contact-detector';
 
 const supabase = createClient();
 
 // ===== USERS =====
 
+// Safe column list for public profile viewing — excludes email, internal flags
+const USER_PROFILE_COLUMNS = `
+  id, display_name, gender, age, bio, city, country, photos, interests, languages,
+  looking_for, occupation, home_world, subscription_tier, vibe_points, vip_level,
+  total_xp, trust_score, vibe_rating, vibe_rating_count, is_verified, is_online,
+  last_online_at, profile_completeness, referral_code, avatar_url, updated_at,
+  ghost_mode_enabled, hide_last_seen, is_founder
+`;
+
+// Minimal columns for listing other users (discover, nearby, leaderboard)
+const USER_LIST_COLUMNS = `
+  id, display_name, gender, age, bio, city, country, photos, interests,
+  is_verified, is_online, last_online_at, vip_level, avatar_url
+`;
+
 export async function fetchUserProfile(userId: string) {
   const { data, error } = await supabase
     .from('users')
-    .select('*')
+    .select(USER_PROFILE_COLUMNS)
     .eq('id', userId)
     .single();
   if (error) throw error;
@@ -19,7 +34,7 @@ export async function fetchUserProfile(userId: string) {
 export async function fetchNearbyUsers(filters?: { gender?: string; limit?: number }) {
   let query = supabase
     .from('users')
-    .select('*')
+    .select(USER_LIST_COLUMNS)
     .order('last_online_at', { ascending: false, nullsFirst: false });
 
   if (filters?.gender && filters.gender !== 'All') {
@@ -85,7 +100,7 @@ export async function joinRoom(roomId: string, userId: string) {
     .from('room_participants')
     .upsert({ room_id: roomId, user_id: userId, role: 'listener' });
   if (!error) {
-    await supabase.rpc('increment_room_listeners', { room_id: roomId });
+    await supabase.rpc('increment_room_listeners', { p_room_id: roomId });
   }
   return { error };
 }
@@ -105,10 +120,11 @@ export async function setParticipantMuted(roomId: string, userId: string, isMute
 }
 
 export async function promoteToSpeaker(roomId: string, userId: string) {
-  await supabase
-    .from('room_participants')
-    .update({ role: 'speaker', is_muted: false })
-    .match({ room_id: roomId, user_id: userId });
+  const { error } = await supabase.rpc('promote_to_speaker', {
+    p_room_id: roomId,
+    p_user_id: userId,
+  });
+  if (error) throw error;
 }
 
 // ===== CONVERSATIONS =====
@@ -222,28 +238,19 @@ export async function fetchSparkMatches(userId: string) {
 }
 
 export async function createSpark(fromId: string, toId: string, score: number) {
-  // Check if reciprocal spark exists
-  const { data: existing } = await supabase
-    .from('spark_matches')
-    .select('*')
-    .eq('user_a', toId)
-    .eq('user_b', fromId)
-    .eq('status', 'pending')
-    .single();
-
-  if (existing) {
-    // It's a match!
-    await supabase.from('spark_matches').update({ status: 'matched' }).eq('id', existing.id);
-    return { matched: true, matchId: existing.id };
-  }
-
-  const { data, error } = await supabase
-    .from('spark_matches')
-    .insert({ user_a: fromId, user_b: toId, match_score: score, expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() })
-    .select()
-    .single();
+  // CRIT-08 Fix: Uses atomic RPC to prevent duplicate pending sparks and race conditions on matching
+  const { data, error } = await supabase.rpc('create_spark_secure', {
+    p_from_id: fromId,
+    p_to_id: toId,
+    p_score: score
+  });
+  
   if (error) throw error;
-  return { matched: false, sparkId: data.id };
+  
+  if (data?.matched) {
+    return { matched: true, matchId: data.match_id };
+  }
+  return { matched: false, sparkId: data.spark_id };
 }
 
 // ===== SAY HI REQUESTS =====
@@ -251,17 +258,17 @@ export async function createSpark(fromId: string, toId: string, score: number) {
 export async function sendSayHi(senderId: string, receiverId: string, message: string, vpCost = 0, isFounder = false) {
   // Silent redaction on Say Hi messages (founders bypass)
   const filtered = isFounder ? { redactedContent: message } : filterChatMessage(message);
-  const { data, error } = await supabase
-    .from('say_hi_requests')
-    .insert({ sender_id: senderId, receiver_id: receiverId, message: filtered.redactedContent, vp_cost: vpCost })
-    .select()
-    .single();
+  
+  // High-07 Fix: Route through RPC to guarantee VP deduction + insert atomically
+  const { data, error } = await supabase.rpc('send_say_hi_secure', {
+    p_receiver_id: receiverId,
+    p_message: filtered.redactedContent,
+    p_vp_cost: vpCost
+  });
+  
   if (error) throw error;
-
-  // Deduct VP if needed
-  if (vpCost > 0) {
-    await deductVP(senderId, vpCost, 'say_hi', `Say Hi to user`);
-  }
+  if (data?.error) throw new Error(data.error);
+  
   return data;
 }
 
@@ -319,19 +326,24 @@ export async function recordProfileView(viewerId: string, targetId: string) {
 // ===== VP & GIFTS =====
 
 export async function deductVP(userId: string, amount: number, type: string, description: string) {
-  // Atomic VP decrement via RPC
-  await supabase.rpc('deduct_vp', { p_user_id: userId, p_amount: amount });
-
-  await supabase.from('vp_transactions').insert({
-    user_id: userId, amount: -amount, type, description,
+  const { data: success, error } = await supabase.rpc('deduct_vp_secure', {
+    p_user_id: userId,
+    p_amount: amount,
+    p_type: type,
+    p_description: description,
   });
+  if (error) throw error;
+  if (!success) throw new Error('Insufficient Vibe Points');
 }
 
 export async function addVP(userId: string, amount: number, type: string, description: string) {
-  await supabase.rpc('add_vp', { p_user_id: userId, p_amount: amount });
-  await supabase.from('vp_transactions').insert({
-    user_id: userId, amount, type, description,
+  const { error } = await supabase.rpc('add_vp_secure', {
+    p_user_id: userId,
+    p_amount: amount,
+    p_type: type,
+    p_description: description,
   });
+  if (error) throw error;
 }
 
 export async function fetchGiftsCatalog() {
@@ -344,28 +356,16 @@ export async function fetchGiftsCatalog() {
 }
 
 export async function sendGift(senderId: string, receiverId: string, giftId: string, vpAmount: number) {
-  // Record transaction
-  await supabase.from('gift_transactions').insert({
-    sender_id: senderId, receiver_id: receiverId, gift_id: giftId, vp_amount: vpAmount,
+  // All gift logic now runs in a single atomic server-side RPC
+  // This prevents race conditions, VP manipulation, and fake earnings
+  const { data, error } = await supabase.rpc('send_gift_secure', {
+    p_sender_id: senderId,
+    p_receiver_id: receiverId,
+    p_gift_id: giftId,
+    p_vp_amount: vpAmount,
   });
-
-  // Deduct VP from sender
-  await deductVP(senderId, vpAmount, 'gift_sent', 'Gift sent');
-
-  // Get receiver's VIP level for gift earning rate
-  const { data: receiver } = await supabase.from('users').select('vip_level').eq('id', receiverId).single();
-  const earningRate = getGiftEarningRate(receiver?.vip_level ?? 0);
-  const earnedVp = Math.round(vpAmount * (earningRate / 100));
-
-  // Credit earnings to receiver based on their VIP gift earning rate
-  await supabase.from('user_earnings').upsert({
-    user_id: receiverId,
-    balance_earned_vp: earnedVp,
-    total_lifetime_earned_vp: earnedVp,
-  }, { onConflict: 'user_id' });
-
-  // Add XP to sender (gift VP spending = 1.5x XP)
-  await addXP(senderId, Math.round(vpAmount * 1.5));
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
 }
 
 export async function fetchVPTransactions(userId: string, limit = 20) {
@@ -441,28 +441,13 @@ export async function claimDailyReward(userId: string): Promise<DailyRewardResul
 
 // ===== VIP / XP =====
 
+// Securely add XP (now uses SQL RPC)
 export async function addXP(userId: string, xpAmount: number) {
-  const { data: user } = await supabase.from('users').select('total_xp, monthly_xp, vip_level').eq('id', userId).single();
-  if (!user) return;
-
-  const newTotalXp = (user.total_xp || 0) + xpAmount;
-  const newMonthlyXp = (user.monthly_xp || 0) + xpAmount;
-
-  // Check for level up
-  const VIP_THRESHOLDS = [0, 1000, 5000, 15000, 40000, 100000, 250000, 500000, 1000000];
-  let newLevel = user.vip_level;
-  for (let i = VIP_THRESHOLDS.length - 1; i >= 0; i--) {
-    if (newTotalXp >= VIP_THRESHOLDS[i]) {
-      newLevel = i;
-      break;
-    }
-  }
-
-  await supabase.from('users').update({
-    total_xp: newTotalXp,
-    monthly_xp: newMonthlyXp,
-    vip_level: newLevel,
-  }).eq('id', userId);
+  const { error } = await supabase.rpc('add_xp_secure', {
+    p_user_id: userId,
+    p_amount: xpAmount,
+  });
+  if (error) throw error;
 }
 
 // ===== CHALLENGES =====
@@ -513,12 +498,12 @@ export async function fetchInventory(userId: string) {
 }
 
 export async function equipItem(itemId: string, userId: string) {
-  // Unequip all same-type items first
-  const { data: item } = await supabase.from('user_inventory').select('item_type').eq('id', itemId).single();
-  if (item) {
-    await supabase.from('user_inventory').update({ is_equipped: false }).eq('user_id', userId).eq('item_type', item.item_type);
-  }
-  await supabase.from('user_inventory').update({ is_equipped: true }).eq('id', itemId);
+  // HIGH-10 Fix: Uses atomic RPC to unequip previous item and equip new one
+  const { error } = await supabase.rpc('equip_item_secure', {
+    p_item_id: itemId,
+    p_user_id: userId
+  });
+  if (error) throw error;
 }
 
 // ===== ACHIEVEMENTS =====
@@ -623,11 +608,25 @@ export async function fetchMessagesWithReactions(conversationId: string, limit =
   return (data || []).reverse();
 }
 
-/** Send a view-once (vault) message */
+/** Upload a vault file to the PRIVATE vaults bucket. Returns the storage path (NOT a public URL). */
+export async function uploadVaultFile(userId: string, file: File): Promise<string> {
+  const ext = file.name.split('.').pop() || 'jpg';
+  const path = `${userId}/vault_${Date.now()}.${ext}`;
+  
+  const { error } = await supabase.storage
+    .from('vaults')
+    .upload(path, file, { upsert: false });
+  if (error) throw error;
+  
+  return path; // Just the path — NOT a public URL
+}
+
+/** Send a view-once (vault) message. For images, content is the private storage path. */
 export async function sendVaultMessage(conversationId: string, senderId: string, content: string, type = 'text', isFounder = false) {
-  // Silent redaction on vault messages too (founders bypass)
+  // Silent redaction on vault text messages (founders bypass)
   const filtered = type === 'text' && !isFounder ? filterChatMessage(content) : null;
-  const storedContent = filtered?.redactedContent ?? content;
+  // For images, content is the storage path — don't redact it
+  const storedContent = type === 'text' ? (filtered?.redactedContent ?? content) : content;
 
   const { data, error } = await supabase
     .from('messages')
@@ -699,13 +698,39 @@ export async function revokeMessage(
   }
 }
 
-/** Mark a vault message as opened. Only call once (caller checks view_once_opened_at). */
-export async function openVaultMessage(messageId: string, userId: string) {
-  const { error } = await supabase.from('messages').update({
-    view_once_opened_at: new Date().toISOString(),
-    view_once_opened_by: userId,
-  }).eq('id', messageId);
-  if (error) throw error;
+/**
+ * Open a vault message securely via Edge Function.
+ * The Edge Function verifies permissions, marks opened server-side, and returns a short-lived signed URL.
+ * Returns { signedUrl?, content?, messageType, expiresInSeconds } or throws on error.
+ */
+export async function openVaultMessage(messageId: string, _userId: string): Promise<{
+  signedUrl?: string;
+  content?: string;
+  messageType: string;
+  expiresInSeconds: number;
+}> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
+  const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
+
+  const res = await fetch(`${supabaseUrl}/functions/v1/get-vault-content`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${session.access_token}`,
+      'apikey': supabaseAnon,
+    },
+    body: JSON.stringify({ messageId }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: 'Vault access denied' }));
+    throw new Error(err.error || `Vault error: ${res.status}`);
+  }
+
+  return res.json();
 }
 
 /** Upsert a reaction — replaces any existing reaction from this user on this message. */
