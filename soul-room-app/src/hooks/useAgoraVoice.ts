@@ -17,8 +17,23 @@ interface UseAgoraVoiceOptions {
   roomId: string;
 }
 
-/** Fetch a signed Agora token from the Supabase Edge Function. */
-async function fetchAgoraToken(channelName: string, uid: number, role: AgoraRole): Promise<string | null> {
+/** Server-side UID derivation — must match the edge function exactly */
+function deriveAgoraUid(userId: string): number {
+  let uid = 0;
+  for (let i = 0; i < userId.length; i++) {
+    uid = ((uid * 31) + userId.charCodeAt(i)) | 0;
+  }
+  uid = Math.abs(uid) % 2_147_483_647;
+  if (uid === 0) uid = 1;
+  return uid;
+}
+
+/** Fetch a signed Agora token from the Supabase Edge Function.
+ *  UID is now derived server-side — the client only sends channelName + role.
+ *  The server verifies room membership and determines the actual Agora role
+ *  from the DB participant record (not the client-supplied role).
+ */
+async function fetchAgoraToken(channelName: string, role: AgoraRole): Promise<{ token: string; uid: number } | null> {
   try {
     const supabase = createClient();
     const { data: { session } } = await supabase.auth.getSession();
@@ -31,12 +46,12 @@ async function fetchAgoraToken(channelName: string, uid: number, role: AgoraRole
         'Authorization': `Bearer ${session.access_token}`,
         'apikey': SUPABASE_ANON,
       },
-      body: JSON.stringify({ channelName, uid, role }),
+      body: JSON.stringify({ channelName, role }),
     });
 
     if (!res.ok) return null;
-    const { token } = await res.json();
-    return token ?? null;
+    const data = await res.json();
+    return data?.token ? { token: data.token, uid: data.uid } : null;
   } catch {
     return null;
   }
@@ -65,12 +80,12 @@ export function useAgoraVoice({ channelName, userId, role, roomId }: UseAgoraVoi
       clientRef.current = client;
       await client.setClientRole(role);
 
-      // Deterministic numeric UID from UUID string
-      const uid = Math.abs(userId.split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 0)) % 1_000_000;
-      ownUidRef.current = uid;
+      // Fetch signed token — server derives UID and verifies room membership
+      const result = await fetchAgoraToken(channelName, role);
+      if (!result) throw new Error('Failed to securely authenticate voice connection');
 
-      // Fetch signed token; fall back to null (works if certificate auth is not yet enforced)
-      const token = await fetchAgoraToken(channelName, uid, role);
+      const { token, uid } = result;
+      ownUidRef.current = uid;
 
       await client.join(APP_ID, channelName, token, uid);
 
@@ -123,7 +138,7 @@ export function useAgoraVoice({ channelName, userId, role, roomId }: UseAgoraVoi
 
   /** Returns true if the given Soul Room userId is currently speaking */
   const isSpeaking = useCallback((uid: string): boolean => {
-    const numeric = Math.abs(uid.split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 0)) % 1_000_000;
+    const numeric = deriveAgoraUid(uid);
     return speakingUids[numeric] ?? false;
   }, [speakingUids]);
 

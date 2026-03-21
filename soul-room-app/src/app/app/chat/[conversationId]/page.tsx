@@ -297,10 +297,12 @@ function ReactionPickerOverlay({
 
 function VaultViewerModal({
   msg,
+  vaultUrl,
   onClose,
   isFounder = false,
 }: {
   msg: Msg;
+  vaultUrl: string | null;
   onClose: () => void;
   isFounder?: boolean;
 }) {
@@ -336,11 +338,13 @@ function VaultViewerModal({
 
       {/* Content */}
       <div className="flex-1 flex items-center justify-center w-full max-w-sm">
-        {msg.message_type === 'image' && msg.content ? (
-          <img src={msg.content} className="max-w-full max-h-full rounded-2xl object-contain" alt="View once" />
+        {msg.message_type === 'image' && vaultUrl ? (
+          <img src={vaultUrl} className="max-w-full max-h-full rounded-2xl object-contain" alt="View once" />
+        ) : msg.message_type === 'image' && !vaultUrl ? (
+          <p className="text-white/50 text-sm text-center">Loading secure content...</p>
         ) : (
           <p className="text-white text-xl text-center font-medium leading-relaxed px-4">
-            {msg.content}
+            {vaultUrl || msg.content}
           </p>
         )}
       </div>
@@ -433,6 +437,7 @@ export default function ConversationPage() {
 
   // ── Vault viewer
   const [vaultViewMsg, setVaultViewMsg] = useState<Msg | null>(null);
+  const [vaultViewUrl, setVaultViewUrl] = useState<string | null>(null);
 
   // ── Forward
   const [forwardMsg, setForwardMsg] = useState<Msg | null>(null);
@@ -640,7 +645,7 @@ export default function ConversationPage() {
     await revokeMessage(msg.id, 'for_everyone').catch(() => {});
   }, [tier, isFounder, showToast, updateMessage]);
 
-  // ── Open vault
+  // ── Open vault via Edge Function
   const handleOpenVault = useCallback(async (msg: Msg) => {
     if (!user) return;
     // Founder can re-open already-opened vault messages
@@ -648,11 +653,17 @@ export default function ConversationPage() {
     if (!isFounder) {
       const confirmed = window.confirm('This can only be viewed once. Open now?');
       if (!confirmed) return;
-      await openVaultMessage(msg.id, user.id).catch(() => {});
-      updateMessage({ id: msg.id, view_once_opened_at: new Date().toISOString(), view_once_opened_by: user.id });
     }
-    setVaultViewMsg({ ...msg, view_once_opened_at: new Date().toISOString() });
-  }, [user, isFounder, updateMessage]);
+    try {
+      const result = await openVaultMessage(msg.id, user.id);
+      // Edge Function marks it opened server-side and returns signed URL or content
+      updateMessage({ id: msg.id, view_once_opened_at: new Date().toISOString(), view_once_opened_by: user.id });
+      setVaultViewUrl(result.signedUrl || result.content || null);
+      setVaultViewMsg({ ...msg, view_once_opened_at: new Date().toISOString() });
+    } catch (err: any) {
+      showToast(err.message || 'Could not open vault message');
+    }
+  }, [user, isFounder, updateMessage, showToast]);
 
   // ── Reaction tap on existing pill
   const handleReactionPillTap = useCallback(async (msg: Msg, emoji: string) => {
@@ -1058,7 +1069,8 @@ export default function ConversationPage() {
       {vaultViewMsg && (
         <VaultViewerModal
           msg={vaultViewMsg}
-          onClose={() => setVaultViewMsg(null)}
+          vaultUrl={vaultViewUrl}
+          onClose={() => { setVaultViewMsg(null); setVaultViewUrl(null); }}
           isFounder={isFounder}
         />
       )}

@@ -13,6 +13,8 @@ export default function LandingPage() {
     "See them. Hear them. Know them."
   ];
 
+  const [exploring, setExploring] = useState(false);
+
   useEffect(() => {
     // If running in Capacitor (Android/iOS), immediately jump to the welcome/splash screen
     if (typeof window !== 'undefined' && (window as any).Capacitor?.isNativePlatform()) {
@@ -88,14 +90,21 @@ export default function LandingPage() {
             </Link>
             <button
               onClick={() => {
+                setExploring(true);
                 localStorage.setItem('soulroom_demo', 'true');
                 router.push('/app');
               }}
-              className="px-8 py-4 rounded-2xl glass text-text-primary font-semibold text-lg transition-all duration-300 hover:bg-dark-500/80 hover:scale-105"
+              disabled={exploring}
+              className="px-8 py-4 rounded-2xl glass text-text-primary font-semibold text-lg transition-all duration-300 hover:bg-dark-500/80 hover:scale-105 disabled:opacity-70 flex items-center justify-center min-w-[180px]"
             >
-              Explore Demo →
+              {exploring ? (
+                <div className="loading-spinner" />
+              ) : (
+                'Explore Demo →'
+              )}
             </button>
           </div>
+
           <div className="flex flex-wrap justify-center gap-8 md:gap-16">
             <div className="text-center">
               <div className="text-2xl md:text-3xl font-bold text-gradient-accent">100K+</div>

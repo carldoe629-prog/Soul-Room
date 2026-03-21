@@ -80,8 +80,14 @@ function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, profile, loading, isAuthenticated, isDemoMode } = useAuth();
   
+  const [navigating, setNavigating] = useState(false);
   const [showNav, setShowNav] = useState(true);
   const lastScrollY = useRef(0);
+
+  // Reset navigating state when pathname changes
+  useEffect(() => {
+    setNavigating(false);
+  }, [pathname]);
 
   const handleScroll = (e: React.UIEvent<HTMLElement>) => {
     const currentScrollY = e.currentTarget.scrollTop;
@@ -113,7 +119,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
     };
   }, [user]);
 
-  if (loading) {
+  if (loading || (!isAuthenticated && !isDemoMode)) {
     return (
       <div className="flex items-center justify-center min-h-screen" style={{ background: 'var(--bg-900)' }}>
         <div className="text-center">
@@ -131,6 +137,13 @@ function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex flex-col min-h-screen max-w-lg mx-auto bg-dark-900 relative" style={{ background: 'var(--bg-900)' }}>
+      {/* Top Loading Bar */}
+      {navigating && (
+        <div className="fixed top-0 left-0 right-0 h-1 z-[100] overflow-hidden">
+          <div className="h-full gradient-accent animate-shimmer" style={{ backgroundSize: '200% 100%' }} />
+        </div>
+      )}
+
       {/* Top Bar — shrinks to 0 height when scrolling down */}
       <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showNav ? 'max-h-[72px]' : 'max-h-0'}`}>
       <header className="z-50 glass px-4 py-3 flex items-center justify-between border-b border-white/5">
@@ -193,6 +206,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={() => {
+                  if (pathname !== item.href) setNavigating(true);
+                }}
                 className={`relative flex flex-col items-center gap-0.5 py-1 px-3 rounded-xl transition-all duration-200 ${
                   isActive ? 'scale-105' : 'opacity-60 hover:opacity-100'
                 }`}

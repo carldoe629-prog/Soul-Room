@@ -427,6 +427,9 @@ export default function OnboardingPage() {
       }
 
       // Save profile to users table
+      // Note: vibe_points and profile_completeness are protected columns
+      // — the DB trigger strips them from client writes.
+      // Welcome VP bonus is handled by the handle_new_user trigger.
       const { error } = await supabase.from('users').update({
         display_name: data.displayName || 'Soul Room User',
         gender: data.gender || 'Other',
@@ -441,17 +444,8 @@ export default function OnboardingPage() {
         occupation: data.occupation,
         home_world: data.homeWorld,
         avatar_url: photoUrls[0] || null,
-        profile_completeness: calculateCompleteness(),
-        vibe_points: 500, // welcome bonus
         updated_at: new Date().toISOString(),
       }).eq('id', user.id);
-
-      if (error) console.error('Profile save error:', error);
-
-      // Give welcome VP bonus
-      await supabase.from('vp_transactions').insert({
-        user_id: user.id, amount: 500, type: 'welcome_bonus', description: 'Welcome to Soul Room! 🎉',
-      });
     } catch (err) {
       console.error('Onboarding save error:', err);
     }
@@ -472,6 +466,18 @@ export default function OnboardingPage() {
   };
 
   const handleContinue = async () => {
+    // Age validation on step 2 (Basics)
+    if (step === 2) {
+      if (!data.dob) {
+        alert('Please enter your date of birth.');
+        return;
+      }
+      if (calculateAge(data.dob) < 18) {
+        alert('You must be at least 18 years old to use Soul Room.');
+        return;
+      }
+    }
+
     if (step === 5) {
       // Save on completion, before showing Ready step
       setStep(6);

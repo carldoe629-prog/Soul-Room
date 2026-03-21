@@ -15,6 +15,10 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <meta
+          httpEquiv="Content-Security-Policy"
+          content="default-src 'self' capacitor://*; connect-src 'self' capacitor://* https://*.supabase.co wss://*.supabase.co; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com capacitor://*; font-src 'self' https://fonts.gstatic.com capacitor://*; img-src 'self' blob: data: https://*.supabase.co capacitor://*;"
+        />
         <script
           dangerouslySetInnerHTML={{
             __html: `
