@@ -160,6 +160,32 @@ create policy "Anyone can read room messages" on public.room_messages for select
 create policy "Authenticated users can send room messages" on public.room_messages
   for insert with check (auth.uid() = user_id);
 
+-- MED-03: Redact contact info in room messages (same as DM trigger)
+create or replace function public.redact_room_message_contact_info()
+returns trigger language plpgsql security definer as $$
+declare
+  v_is_founder boolean;
+begin
+  select is_founder into v_is_founder from public.users where id = new.user_id;
+  if v_is_founder then return new; end if;
+
+  if public.contains_contact_info(new.content) then
+    new.content := regexp_replace(new.content, '(\+?234|0)[789]\d{9}', '[Protected]', 'g');
+    new.content := regexp_replace(new.content, '(\+?233|0)[235]\d{8}', '[Protected]', 'g');
+    new.content := regexp_replace(new.content, '[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', '[Protected]', 'g');
+    new.content := regexp_replace(new.content, '@[a-zA-Z0-9_.]{3,}', '[Protected]', 'g');
+    new.content := regexp_replace(new.content, 'https?://[^\s]+', '[Protected]', 'gi');
+    new.content := regexp_replace(new.content, 'www\.[^\s]+\.[a-z]{2,}', '[Protected]', 'gi');
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_redact_room_message on public.room_messages;
+create trigger trg_redact_room_message
+  before insert on public.room_messages
+  for each row execute function public.redact_room_message_contact_info();
+
 
 -- ============================================================
 -- 6. CONVERSATIONS
@@ -182,9 +208,9 @@ create table if not exists public.conversations (
 alter table public.conversations enable row level security;
 create policy "Users can read their conversations" on public.conversations
   for select using (auth.uid() = user_a or auth.uid() = user_b);
--- Caller must be user_a (the initiator) — prevents IDOR impersonation
+-- Caller must be one of the two parties (normalize trigger may swap a/b)
 create policy "Users can create conversations" on public.conversations
-  for insert with check (auth.uid() = user_a);
+  for insert with check (auth.uid() = user_a or auth.uid() = user_b);
 -- Either party can update, but a trigger protects sensitive columns
 create policy "Users can update their conversations" on public.conversations
   for update using (auth.uid() = user_a or auth.uid() = user_b);
@@ -221,7 +247,11 @@ create policy "Users can send messages in their conversations" on public.message
       and (c.user_a = auth.uid() or c.user_b = auth.uid())
     )
   );
-create policy "Users can mark messages as read" on public.messages
+-- HIGH-01: Messages UPDATE is guarded by a trigger that enforces:
+-- - Only conversation members can update (RLS policy)
+-- - Only the sender can edit content/revoke (trigger checks sender_id)
+-- - Non-senders can only mark messages as read (trigger reverts other fields)
+create policy "Users can update messages in their conversations" on public.messages
   for update using (
     exists (
       select 1 from public.conversations c
@@ -229,6 +259,38 @@ create policy "Users can mark messages as read" on public.messages
       and (c.user_a = auth.uid() or c.user_b = auth.uid())
     )
   );
+
+-- Trigger: enforce sender-only content editing, allow read-marking by either party
+create or replace function public.protect_message_fields()
+returns trigger language plpgsql security definer as $$
+begin
+  if (current_setting('role') <> 'service_role') then
+    -- Non-sender can only change is_read, delete_for_recipient_at
+    if auth.uid() is distinct from old.sender_id then
+      new.content := old.content;
+      new.is_revoked := old.is_revoked;
+      new.edited_at := old.edited_at;
+      new.original_content := old.original_content;
+      new.message_type := old.message_type;
+      new.is_vault := old.is_vault;
+      new.is_forwarded := old.is_forwarded;
+      new.view_once_opened_at := old.view_once_opened_at;
+      new.view_once_opened_by := old.view_once_opened_by;
+      new.delete_for_sender_at := old.delete_for_sender_at;
+      -- Allow: is_read, delete_for_recipient_at
+    end if;
+    -- Nobody can change sender_id or conversation_id
+    new.sender_id := old.sender_id;
+    new.conversation_id := old.conversation_id;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_message_update on public.messages;
+create trigger on_message_update
+  before update on public.messages
+  for each row execute function public.protect_message_fields();
 
 
 -- ============================================================
@@ -355,10 +417,37 @@ create table if not exists public.say_hi_requests (
 alter table public.say_hi_requests enable row level security;
 create policy "Users can read their say hi requests" on public.say_hi_requests
   for select using (auth.uid() = sender_id or auth.uid() = receiver_id);
-create policy "Users can send say hi" on public.say_hi_requests
-  for insert with check (auth.uid() = sender_id);
+-- CRIT-03: No direct INSERT — all Say Hi requests go through send_say_hi_secure RPC
+-- This prevents VP cost bypass (inserting with vp_cost=0 without paying)
 create policy "Receiver can respond" on public.say_hi_requests
   for update using (auth.uid() = receiver_id);
+
+-- Protect say_hi_requests: only allow pending→accepted or pending→declined transitions
+create or replace function public.protect_say_hi_status()
+returns trigger language plpgsql security definer as $$
+begin
+  if (current_setting('role') <> 'service_role') then
+    -- Only status field can change
+    new.sender_id := old.sender_id;
+    new.receiver_id := old.receiver_id;
+    new.message := old.message;
+    new.vp_cost := old.vp_cost;
+    -- Only allow pending → accepted or pending → declined
+    if old.status <> 'pending' then
+      raise exception 'Cannot change status of a non-pending request' using errcode = 'P0001';
+    end if;
+    if new.status not in ('accepted', 'declined') then
+      raise exception 'Invalid status transition' using errcode = 'P0001';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_say_hi_update on public.say_hi_requests;
+create trigger on_say_hi_update
+  before update on public.say_hi_requests
+  for each row execute function public.protect_say_hi_status();
 
 
 -- ============================================================
@@ -438,6 +527,10 @@ create table if not exists public.profile_views (
   target_user_id uuid not null references public.users(id) on delete cascade,
   created_at     timestamptz not null default now()
 );
+
+-- MED-02: Dedup constraint — one view per viewer per target per day
+create unique index if not exists idx_profile_views_daily
+  on public.profile_views (viewer_id, target_user_id, (created_at::date));
 
 alter table public.profile_views enable row level security;
 create policy "Users can read views of their profile" on public.profile_views
@@ -637,8 +730,8 @@ create table if not exists public.user_inventory (
 alter table public.user_inventory enable row level security;
 create policy "Users can read their inventory" on public.user_inventory
   for select using (auth.uid() = user_id);
-create policy "Users can manage their inventory" on public.user_inventory
-  for all using (auth.uid() = user_id);
+-- CRIT-04: No direct INSERT/UPDATE/DELETE — all inventory writes go through equip_item_secure RPC
+-- This prevents free premium item injection
 
 
 -- ============================================================
@@ -702,6 +795,28 @@ create policy "Users can read their reports" on public.reports
 -- 23. RPC FUNCTIONS
 -- ============================================================
 
+-- LOW-05: Prevent duplicate conversations (A,B) vs (B,A)
+-- Enforce that user_a < user_b (lexicographic) via trigger
+create or replace function public.normalize_conversation_order()
+returns trigger language plpgsql as $$
+begin
+  if new.user_a > new.user_b then
+    -- Swap so user_a is always the "lesser" UUID
+    declare tmp uuid := new.user_a;
+    begin
+      new.user_a := new.user_b;
+      new.user_b := tmp;
+    end;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_normalize_conversation on public.conversations;
+create trigger trg_normalize_conversation
+  before insert on public.conversations
+  for each row execute function public.normalize_conversation_order();
+
 -- Ghost RPCs removed — use _secure variants only
 drop function if exists public.deduct_vp(uuid, int);
 drop function if exists public.add_vp(uuid, int);
@@ -722,6 +837,19 @@ begin
   end if;
   update public.rooms
   set listener_count = listener_count + 1
+  where id = p_room_id;
+end;
+$$;
+
+-- LOW-02: Decrement room listener count (called on leave)
+create or replace function public.decrement_room_listeners(p_room_id uuid)
+returns void language plpgsql security definer as $$
+begin
+  if auth.uid() is null then
+    raise exception 'Unauthorized' using errcode = 'P0001';
+  end if;
+  update public.rooms
+  set listener_count = greatest(0, listener_count - 1)
   where id = p_room_id;
 end;
 $$;
@@ -828,7 +956,8 @@ begin
 end;
 $$;
 
--- Securely add XP (auth-guarded)
+-- Internal-only: add XP (NOT callable by clients — EXECUTE revoked below)
+-- Only called from within other security definer RPCs (claim_daily_reward, send_gift_secure)
 create or replace function public.add_xp_secure(p_user_id uuid, p_amount int)
 returns void language plpgsql security definer as $$
 declare
@@ -836,9 +965,6 @@ declare
   v_level int;
   v_thresholds int[] := array[0, 1000, 5000, 15000, 40000, 100000, 250000, 500000, 1000000];
 begin
-  if auth.uid() is distinct from p_user_id then
-    raise exception 'Unauthorized' using errcode = 'P0001';
-  end if;
   if p_amount <= 0 then
     raise exception 'Amount must be positive' using errcode = 'P0001';
   end if;
@@ -861,6 +987,10 @@ begin
   update public.users set vip_level = v_level where id = p_user_id;
 end;
 $$;
+
+-- CRIT-02: Revoke client access — only other security definer RPCs can call this
+revoke execute on function public.add_xp_secure(uuid, int) from authenticated;
+revoke execute on function public.add_xp_secure(uuid, int) from anon;
 
 -- Securely deduct VP (auth-guarded, own account only)
 create or replace function public.deduct_vp_secure(p_user_id uuid, p_amount int, p_type text, p_description text)
@@ -892,13 +1022,11 @@ begin
 end;
 $$;
 
--- Securely add VP (auth-guarded, own account only)
+-- Internal-only: add VP (NOT callable by clients — EXECUTE revoked below)
+-- Only called from within other security definer RPCs (send_gift_secure, claim_daily_reward)
 create or replace function public.add_vp_secure(p_user_id uuid, p_amount int, p_type text, p_description text)
 returns void language plpgsql security definer as $$
 begin
-  if auth.uid() is distinct from p_user_id then
-    raise exception 'Unauthorized: cannot add VP to another user' using errcode = 'P0001';
-  end if;
   if p_amount <= 0 then
     raise exception 'Amount must be positive' using errcode = 'P0001';
   end if;
@@ -911,6 +1039,10 @@ begin
   values (p_user_id, p_amount, p_type, p_description);
 end;
 $$;
+
+-- CRIT-01: Revoke client access — only other security definer RPCs can call this
+revoke execute on function public.add_vp_secure(uuid, int, text, text) from authenticated;
+revoke execute on function public.add_vp_secure(uuid, int, text, text) from anon;
 
 -- ============================================================
 -- ATOMIC BUSINESS RPCs (auth-guarded)
@@ -1199,6 +1331,9 @@ begin
     if new.status <> old.status then
       new.status := old.status;
     end if;
+    -- HIGH-02: Prevent last_message tampering (only RPCs/triggers should set this)
+    new.last_message := old.last_message;
+    new.last_message_at := old.last_message_at;
   end if;
   return new;
 end;
@@ -1208,6 +1343,33 @@ drop trigger if exists on_conversation_update on public.conversations;
 create trigger on_conversation_update
   before update on public.conversations
   for each row execute function public.protect_conversation_fields();
+
+-- Auto-update conversation last_message on new message INSERT
+-- This replaces the client-side conversation update (which is now blocked by the trigger)
+create or replace function public.update_conversation_on_message()
+returns trigger language plpgsql security definer as $$
+begin
+  update public.conversations
+  set last_message = case
+        when new.is_vault then '🔒 View once'
+        when new.message_type = 'gift' then '🎁 Gift'
+        else left(new.content, 100)
+      end,
+      last_message_at = new.created_at,
+      -- Increment unread count for the OTHER user
+      unread_count_a = case when (select user_a from public.conversations where id = new.conversation_id) = new.sender_id
+                        then unread_count_a else unread_count_a + 1 end,
+      unread_count_b = case when (select user_b from public.conversations where id = new.conversation_id) = new.sender_id
+                        then unread_count_b else unread_count_b + 1 end
+  where id = new.conversation_id;
+  return new;
+end;
+$$;
+
+drop trigger if exists on_message_insert_update_conv on public.messages;
+create trigger on_message_insert_update_conv
+  after insert on public.messages
+  for each row execute function public.update_conversation_on_message();
 
 
 -- ============================================================

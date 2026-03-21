@@ -110,6 +110,8 @@ export async function leaveRoom(roomId: string, userId: string) {
     .from('room_participants')
     .delete()
     .match({ room_id: roomId, user_id: userId });
+  // LOW-02: Decrement listener count (prevents permanent upward drift)
+  await supabase.rpc('decrement_room_listeners', { p_room_id: roomId });
 }
 
 export async function setParticipantMuted(roomId: string, userId: string, isMuted: boolean) {
@@ -172,12 +174,7 @@ export async function sendMessage(conversationId: string, senderId: string, cont
     .single();
   if (error) throw error;
 
-  // Update conversation preview with redacted content
-  await supabase
-    .from('conversations')
-    .update({ last_message: storedContent, last_message_at: new Date().toISOString() })
-    .eq('id', conversationId);
-
+  // Conversation last_message is now auto-updated by the on_message_insert_update_conv trigger
   return data;
 }
 
@@ -336,15 +333,8 @@ export async function deductVP(userId: string, amount: number, type: string, des
   if (!success) throw new Error('Insufficient Vibe Points');
 }
 
-export async function addVP(userId: string, amount: number, type: string, description: string) {
-  const { error } = await supabase.rpc('add_vp_secure', {
-    p_user_id: userId,
-    p_amount: amount,
-    p_type: type,
-    p_description: description,
-  });
-  if (error) throw error;
-}
+// addVP removed — add_vp_secure is now internal-only (EXECUTE revoked from clients)
+// VP credits happen inside atomic RPCs: send_gift_secure, claim_daily_reward
 
 export async function fetchGiftsCatalog() {
   const { data, error } = await supabase
@@ -441,14 +431,8 @@ export async function claimDailyReward(userId: string): Promise<DailyRewardResul
 
 // ===== VIP / XP =====
 
-// Securely add XP (now uses SQL RPC)
-export async function addXP(userId: string, xpAmount: number) {
-  const { error } = await supabase.rpc('add_xp_secure', {
-    p_user_id: userId,
-    p_amount: xpAmount,
-  });
-  if (error) throw error;
-}
+// addXP removed — add_xp_secure is now internal-only (EXECUTE revoked from clients)
+// XP awards happen inside atomic RPCs: claim_daily_reward, send_gift_secure
 
 // ===== CHALLENGES =====
 
@@ -472,17 +456,15 @@ export async function fetchUserChallenges(userId: string) {
   return data || [];
 }
 
-export async function updateChallengeProgress(userId: string, challengeId: string, progress: number) {
-  const today = new Date().toISOString().split('T')[0];
-  const { error } = await supabase
-    .from('user_challenges')
-    .upsert({
-      user_id: userId,
-      challenge_id: challengeId,
-      progress,
-      assigned_date: today,
-    }, { onConflict: 'user_id,challenge_id,assigned_date' });
-  return { error };
+export async function updateChallengeProgress(userId: string, challengeId: string, increment = 1) {
+  // HIGH-06: Uses atomic RPC instead of direct upsert (trigger blocks direct writes)
+  const { data, error } = await supabase.rpc('update_challenge_progress', {
+    p_user_id: userId,
+    p_challenge_id: challengeId,
+    p_increment: increment,
+  });
+  if (error) throw error;
+  return { data, error: null };
 }
 
 // ===== INVENTORY =====
@@ -634,10 +616,7 @@ export async function sendVaultMessage(conversationId: string, senderId: string,
     .select()
     .single();
   if (error) throw error;
-  await supabase
-    .from('conversations')
-    .update({ last_message: '🔒 View once', last_message_at: new Date().toISOString() })
-    .eq('id', conversationId);
+  // Conversation last_message auto-updated by trigger
   return data;
 }
 
@@ -780,12 +759,7 @@ export async function forwardMessage(
     .select()
     .single();
   if (insertErr) throw insertErr;
-
-  await supabase
-    .from('conversations')
-    .update({ last_message: forwardedContent, last_message_at: new Date().toISOString() })
-    .eq('id', targetConversationId);
-
+  // Conversation last_message auto-updated by trigger
   return data;
 }
 
