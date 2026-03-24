@@ -142,39 +142,39 @@ export default function LandingPage() {
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-             <div className="group p-6 rounded-3xl glass hover:bg-dark-600/50 transition-all duration-500 hover:scale-[1.02] hover:-translate-y-1">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#FF4B6E] to-[#FF8D5C] flex items-center justify-center text-2xl mb-4 group-hover:scale-110 transition-transform">⚡</div>
+             <div className="group p-6 rounded-3xl glass hover:bg-dark-600/50 transition-all duration-500 hover:scale-[1.02] hover:-translate-y-1 text-center items-center">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#FF4B6E] to-[#FF8D5C] flex items-center justify-center text-2xl mb-4 mx-auto group-hover:scale-110 transition-transform">⚡</div>
               <h3 className="text-xl font-bold mb-2">Spark Matching</h3>
               <p className="text-text-secondary text-sm leading-relaxed">
                 AI-powered matches based on shared interests. See photos, then connect through a 5-minute voice call. Both vote — only mutual Sparks unlock chat.
               </p>
             </div>
-            <div className="group p-6 rounded-3xl glass hover:bg-dark-600/50 transition-all duration-500 hover:scale-[1.02] hover:-translate-y-1">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#8B5CF6] to-[#C4B5FD] flex items-center justify-center text-2xl mb-4 group-hover:scale-110 transition-transform">🌍</div>
+            <div className="group p-6 rounded-3xl glass hover:bg-dark-600/50 transition-all duration-500 hover:scale-[1.02] hover:-translate-y-1 text-center items-center">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#8B5CF6] to-[#C4B5FD] flex items-center justify-center text-2xl mb-4 mx-auto group-hover:scale-110 transition-transform">🌍</div>
               <h3 className="text-xl font-bold mb-2">Worlds &amp; Voice Rooms</h3>
               <p className="text-text-secondary text-sm leading-relaxed">
                 10+ themed communities — Music, Travel, Tech, Faith, and more. Join live voice rooms, meet people who share your passions.
               </p>
             </div>
-            <div className="group p-6 rounded-3xl glass hover:bg-dark-600/50 transition-all duration-500 hover:scale-[1.02] hover:-translate-y-1">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#00E5A0] to-[#4BFFCA] flex items-center justify-center text-2xl mb-4 group-hover:scale-110 transition-transform">🔒</div>
+            <div className="group p-6 rounded-3xl glass hover:bg-dark-600/50 transition-all duration-500 hover:scale-[1.02] hover:-translate-y-1 text-center items-center">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#00E5A0] to-[#4BFFCA] flex items-center justify-center text-2xl mb-4 mx-auto group-hover:scale-110 transition-transform">🔒</div>
               <h3 className="text-xl font-bold mb-2">Vault Messages</h3>
               <p className="text-text-secondary text-sm leading-relaxed">
                 Share private photos with view-once, timed viewing, screenshot blocking, and revocable access. Your content, your control — always.
               </p>
             </div>
-            <div className="group p-6 rounded-3xl glass hover:bg-dark-600/50 transition-all duration-500 hover:scale-[1.02] hover:-translate-y-1">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#4B9FFF] to-[#8BC4FF] flex items-center justify-center text-2xl mb-4 group-hover:scale-110 transition-transform duration-300">🎤</div>
+            <div className="group p-6 rounded-3xl glass hover:bg-dark-600/50 transition-all duration-500 hover:scale-[1.02] hover:-translate-y-1 text-center items-center">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#4B9FFF] to-[#8BC4FF] flex items-center justify-center text-2xl mb-4 mx-auto group-hover:scale-110 transition-transform duration-300">🎤</div>
               <h3 className="text-xl font-bold text-text-primary mb-2">Free Voice &amp; Video Calls</h3>
               <p className="text-text-secondary text-sm leading-relaxed">Talk to your connections without paying per minute. Powered by WebRTC peer-to-peer — crystal clear, zero server cost.</p>
             </div>
-            <div className="group p-6 rounded-3xl glass hover:bg-dark-600/50 transition-all duration-500 hover:scale-[1.02] hover:-translate-y-1">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#FFB84B] to-[#FFD280] flex items-center justify-center text-2xl mb-4 group-hover:scale-110 transition-transform duration-300">🛡️</div>
+            <div className="group p-6 rounded-3xl glass hover:bg-dark-600/50 transition-all duration-500 hover:scale-[1.02] hover:-translate-y-1 text-center items-center">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#FFB84B] to-[#FFD280] flex items-center justify-center text-2xl mb-4 mx-auto group-hover:scale-110 transition-transform duration-300">🛡️</div>
               <h3 className="text-xl font-bold text-text-primary mb-2">Privacy First</h3>
               <p className="text-text-secondary text-sm leading-relaxed">No phone number sharing. Invisible watermarking. True blocking. Contact detection prevents off-platform migration.</p>
             </div>
-            <div className="group p-6 rounded-3xl glass hover:bg-dark-600/50 transition-all duration-500 hover:scale-[1.02] hover:-translate-y-1">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#FF4B6E] to-[#8B5CF6] flex items-center justify-center text-2xl mb-4 group-hover:scale-110 transition-transform duration-300">💜</div>
+            <div className="group p-6 rounded-3xl glass hover:bg-dark-600/50 transition-all duration-500 hover:scale-[1.02] hover:-translate-y-1 text-center items-center">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#FF4B6E] to-[#8B5CF6] flex items-center justify-center text-2xl mb-4 mx-auto group-hover:scale-110 transition-transform duration-300">💜</div>
               <h3 className="text-xl font-bold text-text-primary mb-2">Trust &amp; Reputation</h3>
               <p className="text-text-secondary text-sm leading-relaxed">Verified profiles, Vibe Ratings, and Trust Scores. Know who you&apos;re talking to before you share your world.</p>
             </div>
