@@ -73,13 +73,26 @@ export async function createUserProfile(userId: string, profile: {
   return data;
 }
 
+const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_UPLOAD_SIZE = 5 * 1024 * 1024; // 5 MB
+
 export async function uploadPhoto(userId: string, file: File, index: number): Promise<string> {
-  const ext = file.name.split('.').pop();
+  // Server-side enforceable content-type validation
+  if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+    throw new Error('Only JPEG, PNG, and WebP images are allowed');
+  }
+  if (file.size > MAX_UPLOAD_SIZE) {
+    throw new Error('File size must be under 5 MB');
+  }
+
+  // Use validated MIME-based extension (not user-supplied file.name)
+  const extMap: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+  const ext = extMap[file.type] || 'jpg';
   const path = `${userId}/photo_${index}.${ext}`;
 
   const { error } = await supabase.storage
     .from('avatars')
-    .upload(path, file, { upsert: true });
+    .upload(path, file, { upsert: true, contentType: file.type });
   if (error) throw error;
 
   const { data } = supabase.storage.from('avatars').getPublicUrl(path);

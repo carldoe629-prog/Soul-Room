@@ -518,14 +518,18 @@ export default function ConversationPage() {
     return () => { channel.unsubscribe(); };
   }, [conversationId]);
 
-  // ── Realtime: reactions INSERT + DELETE
+  // ── Realtime: reactions INSERT + DELETE (scoped to this conversation's messages)
   useEffect(() => {
+    const msgIds = messages.map((m) => m.id);
+    if (msgIds.length === 0) return;
     const channel = subscribeToReactions(
+      conversationId,
+      msgIds,
       (newReaction) => {
         setMessages((prev) =>
           prev.map((m) => {
             if (m.id !== newReaction.message_id) return m;
-            if (m.reactions.find((r) => r.id === newReaction.id)) return m;
+            if (m.reactions.find((r: any) => r.id === newReaction.id)) return m;
             return { ...m, reactions: [...m.reactions, newReaction] };
           })
         );
@@ -534,13 +538,13 @@ export default function ConversationPage() {
         setMessages((prev) =>
           prev.map((m) => {
             if (m.id !== deletedReaction.message_id) return m;
-            return { ...m, reactions: m.reactions.filter((r) => r.id !== deletedReaction.id) };
+            return { ...m, reactions: m.reactions.filter((r: any) => r.id !== deletedReaction.id) };
           })
         );
       }
     );
     return () => { channel.unsubscribe(); };
-  }, []);
+  }, [conversationId, messages.length]);
 
   // ── Scroll to bottom
   useEffect(() => {

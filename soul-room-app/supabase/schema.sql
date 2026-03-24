@@ -209,8 +209,16 @@ alter table public.conversations enable row level security;
 create policy "Users can read their conversations" on public.conversations
   for select using (auth.uid() = user_a or auth.uid() = user_b);
 -- Caller must be one of the two parties (normalize trigger may swap a/b)
+-- Block enforcement: cannot create conversation if either party blocked the other
 create policy "Users can create conversations" on public.conversations
-  for insert with check (auth.uid() = user_a or auth.uid() = user_b);
+  for insert with check (
+    (auth.uid() = user_a or auth.uid() = user_b)
+    and not exists (
+      select 1 from public.blocks
+      where (blocker_id = user_a and blocked_id = user_b)
+         or (blocker_id = user_b and blocked_id = user_a)
+    )
+  );
 -- Either party can update, but a trigger protects sensitive columns
 create policy "Users can update their conversations" on public.conversations
   for update using (auth.uid() = user_a or auth.uid() = user_b);
@@ -245,6 +253,13 @@ create policy "Users can send messages in their conversations" on public.message
       select 1 from public.conversations c
       where c.id = conversation_id
       and (c.user_a = auth.uid() or c.user_b = auth.uid())
+    )
+    -- Block enforcement: cannot send messages if either party blocked the other
+    and not exists (
+      select 1 from public.blocks b
+      join public.conversations c on c.id = conversation_id
+      where (b.blocker_id = c.user_a and b.blocked_id = c.user_b)
+         or (b.blocker_id = c.user_b and b.blocked_id = c.user_a)
     )
   );
 -- HIGH-01: Messages UPDATE is guarded by a trigger that enforces:
@@ -462,7 +477,9 @@ create table if not exists public.follows (
 );
 
 alter table public.follows enable row level security;
-create policy "Anyone can read follows" on public.follows for select using (true);
+-- H1: Restrict follows visibility to relationship members (prevents full social graph enumeration)
+create policy "Users can read their follows" on public.follows
+  for select using (auth.uid() = follower_id or auth.uid() = following_id);
 create policy "Users can follow" on public.follows
   for insert with check (auth.uid() = follower_id);
 create policy "Users can unfollow" on public.follows
@@ -591,8 +608,8 @@ create table if not exists public.gift_transactions (
 alter table public.gift_transactions enable row level security;
 create policy "Users can read their gift transactions" on public.gift_transactions
   for select using (auth.uid() = sender_id or auth.uid() = receiver_id);
-create policy "Users can send gifts" on public.gift_transactions
-  for insert with check (auth.uid() = sender_id);
+-- H2: No direct INSERT — all gift transactions go through send_gift_secure RPC
+-- This prevents fake transaction records with arbitrary vp_amount
 
 
 -- ============================================================
@@ -608,8 +625,8 @@ create table if not exists public.user_earnings (
 alter table public.user_earnings enable row level security;
 create policy "Users can read their earnings" on public.user_earnings
   for select using (auth.uid() = user_id);
-create policy "System can upsert earnings" on public.user_earnings
-  for all using (auth.uid() = user_id);
+-- No direct INSERT/UPDATE/DELETE — earnings are managed by send_gift_secure RPC only
+-- (Previous 'for all' policy was overly permissive)
 
 
 -- ============================================================
@@ -783,6 +800,10 @@ create table if not exists public.reports (
   status           text not null default 'pending',
   created_at       timestamptz not null default now()
 );
+
+-- M1: Rate limit reports — max 1 per reporter per reported user per day
+create unique index if not exists idx_reports_daily_dedup
+  on public.reports (reporter_id, reported_user_id, (created_at::date));
 
 alter table public.reports enable row level security;
 create policy "Users can submit reports" on public.reports
@@ -1067,6 +1088,15 @@ begin
     raise exception 'Cannot send gift to yourself' using errcode = 'P0001';
   end if;
 
+  -- Block enforcement: prevent gifting blocked/blocking users
+  if exists (
+    select 1 from public.blocks
+    where (blocker_id = p_receiver_id and blocked_id = p_sender_id)
+       or (blocker_id = p_sender_id and blocked_id = p_receiver_id)
+  ) then
+    return jsonb_build_object('error', 'Cannot send gift to this user');
+  end if;
+
   -- Lock sender row
   select vibe_points into v_sender_vp from public.users where id = p_sender_id for update;
   if v_sender_vp < p_vp_amount then
@@ -1113,6 +1143,15 @@ begin
     raise exception 'Unauthorized' using errcode = 'P0001';
   end if;
 
+  -- Block enforcement: prevent sending Say Hi to someone who blocked you (or you blocked)
+  if exists (
+    select 1 from public.blocks
+    where (blocker_id = p_receiver_id and blocked_id = v_sender_id)
+       or (blocker_id = v_sender_id and blocked_id = p_receiver_id)
+  ) then
+    return jsonb_build_object('error', 'Cannot send Say Hi to this user');
+  end if;
+
   if p_vp_cost > 0 then
     select vibe_points into v_sender_vp from public.users where id = v_sender_id for update;
     if v_sender_vp < p_vp_cost then
@@ -1143,6 +1182,15 @@ begin
   end if;
   if p_from_id = p_to_id then
     raise exception 'Cannot spark yourself' using errcode = 'P0001';
+  end if;
+
+  -- Block enforcement: prevent sparking blocked/blocking users
+  if exists (
+    select 1 from public.blocks
+    where (blocker_id = p_to_id and blocked_id = p_from_id)
+       or (blocker_id = p_from_id and blocked_id = p_to_id)
+  ) then
+    return jsonb_build_object('error', 'Cannot spark this user');
   end if;
 
   -- Check for existing pending spark from this user
@@ -1453,5 +1501,33 @@ create policy "Users can update their own avatar" on storage.objects
 create policy "Users can delete their own avatar" on storage.objects
   for delete using (
     bucket_id = 'avatars'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+-- ============================================================
+-- 28. STORAGE — vaults bucket (PRIVATE)
+-- ============================================================
+insert into storage.buckets (id, name, public)
+values ('vaults', 'vaults', false)
+on conflict (id) do nothing;
+
+-- Users can only read their own vault files
+create policy "Users can read their vault files" on storage.objects
+  for select using (
+    bucket_id = 'vaults'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+-- Users can upload to their own vault folder only
+create policy "Users can upload vault files" on storage.objects
+  for insert with check (
+    bucket_id = 'vaults'
+    and auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+-- Users can delete their own vault files
+create policy "Users can delete vault files" on storage.objects
+  for delete using (
+    bucket_id = 'vaults'
     and auth.uid()::text = (storage.foldername(name))[1]
   );

@@ -297,10 +297,12 @@ function ReactionPickerOverlay({
 
 function VaultViewerModal({
   msg,
+  vaultUrl,
   onClose,
   isFounder = false,
 }: {
   msg: Msg;
+  vaultUrl: string | null;
   onClose: () => void;
   isFounder?: boolean;
 }) {
@@ -336,11 +338,13 @@ function VaultViewerModal({
 
       {/* Content */}
       <div className="flex-1 flex items-center justify-center w-full max-w-sm">
-        {msg.message_type === 'image' && msg.content ? (
-          <img src={msg.content} className="max-w-full max-h-full rounded-2xl object-contain" alt="View once" />
+        {msg.message_type === 'image' && vaultUrl ? (
+          <img src={vaultUrl} className="max-w-full max-h-full rounded-2xl object-contain" alt="View once" />
+        ) : msg.message_type === 'image' && !vaultUrl ? (
+          <p className="text-white/50 text-sm text-center">Loading secure content...</p>
         ) : (
           <p className="text-white text-xl text-center font-medium leading-relaxed px-4">
-            {msg.content}
+            {vaultUrl || msg.content}
           </p>
         )}
       </div>
@@ -433,6 +437,7 @@ export default function ConversationPage() {
 
   // ── Vault viewer
   const [vaultViewMsg, setVaultViewMsg] = useState<Msg | null>(null);
+  const [vaultViewUrl, setVaultViewUrl] = useState<string | null>(null);
 
   // ── Forward
   const [forwardMsg, setForwardMsg] = useState<Msg | null>(null);
@@ -513,14 +518,18 @@ export default function ConversationPage() {
     return () => { channel.unsubscribe(); };
   }, [conversationId]);
 
-  // ── Realtime: reactions INSERT + DELETE
+  // ── Realtime: reactions INSERT + DELETE (scoped to this conversation's messages)
   useEffect(() => {
+    const msgIds = messages.map((m) => m.id);
+    if (msgIds.length === 0) return;
     const channel = subscribeToReactions(
+      conversationId,
+      msgIds,
       (newReaction) => {
         setMessages((prev) =>
           prev.map((m) => {
             if (m.id !== newReaction.message_id) return m;
-            if (m.reactions.find((r) => r.id === newReaction.id)) return m;
+            if (m.reactions.find((r: any) => r.id === newReaction.id)) return m;
             return { ...m, reactions: [...m.reactions, newReaction] };
           })
         );
@@ -529,13 +538,13 @@ export default function ConversationPage() {
         setMessages((prev) =>
           prev.map((m) => {
             if (m.id !== deletedReaction.message_id) return m;
-            return { ...m, reactions: m.reactions.filter((r) => r.id !== deletedReaction.id) };
+            return { ...m, reactions: m.reactions.filter((r: any) => r.id !== deletedReaction.id) };
           })
         );
       }
     );
     return () => { channel.unsubscribe(); };
-  }, []);
+  }, [conversationId, messages.length]);
 
   // ── Scroll to bottom
   useEffect(() => {
@@ -572,7 +581,7 @@ export default function ConversationPage() {
       setText('');
       setEditingMsg(null);
       try {
-        await editMessage(editingMsg.id, trimmed, user.id);
+        await editMessage(editingMsg.id, trimmed, user.id, isFounder);
         updateMessage({ id: editingMsg.id, content: trimmed, edited_at: new Date().toISOString() });
       } catch {
         setText(trimmed);
@@ -600,7 +609,7 @@ export default function ConversationPage() {
           await deductVP(user.id, 50, 'vault_photo', 'Vault photo message').catch(() => {});
         }
       }
-      const msg = await sendFn(conversationId, user.id, prefix);
+      const msg = await sendFn(conversationId, user.id, prefix, 'text', isFounder);
       setMessages((prev) => [...prev, { ...(msg as Msg), reactions: [] }]);
     } catch {
       setText(prefix);
@@ -640,7 +649,7 @@ export default function ConversationPage() {
     await revokeMessage(msg.id, 'for_everyone').catch(() => {});
   }, [tier, isFounder, showToast, updateMessage]);
 
-  // ── Open vault
+  // ── Open vault via Edge Function
   const handleOpenVault = useCallback(async (msg: Msg) => {
     if (!user) return;
     // Founder can re-open already-opened vault messages
@@ -648,11 +657,17 @@ export default function ConversationPage() {
     if (!isFounder) {
       const confirmed = window.confirm('This can only be viewed once. Open now?');
       if (!confirmed) return;
-      await openVaultMessage(msg.id, user.id).catch(() => {});
-      updateMessage({ id: msg.id, view_once_opened_at: new Date().toISOString(), view_once_opened_by: user.id });
     }
-    setVaultViewMsg({ ...msg, view_once_opened_at: new Date().toISOString() });
-  }, [user, isFounder, updateMessage]);
+    try {
+      const result = await openVaultMessage(msg.id, user.id);
+      // Edge Function marks it opened server-side and returns signed URL or content
+      updateMessage({ id: msg.id, view_once_opened_at: new Date().toISOString(), view_once_opened_by: user.id });
+      setVaultViewUrl(result.signedUrl || result.content || null);
+      setVaultViewMsg({ ...msg, view_once_opened_at: new Date().toISOString() });
+    } catch (err: any) {
+      showToast(err.message || 'Could not open vault message');
+    }
+  }, [user, isFounder, updateMessage, showToast]);
 
   // ── Reaction tap on existing pill
   const handleReactionPillTap = useCallback(async (msg: Msg, emoji: string) => {
@@ -1058,7 +1073,8 @@ export default function ConversationPage() {
       {vaultViewMsg && (
         <VaultViewerModal
           msg={vaultViewMsg}
-          onClose={() => setVaultViewMsg(null)}
+          vaultUrl={vaultViewUrl}
+          onClose={() => { setVaultViewMsg(null); setVaultViewUrl(null); }}
           isFounder={isFounder}
         />
       )}

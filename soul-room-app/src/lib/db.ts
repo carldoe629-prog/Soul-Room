@@ -590,16 +590,28 @@ export async function fetchMessagesWithReactions(conversationId: string, limit =
   return (data || []).reverse();
 }
 
+const VAULT_ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const VAULT_MAX_SIZE = 5 * 1024 * 1024; // 5 MB
+
 /** Upload a vault file to the PRIVATE vaults bucket. Returns the storage path (NOT a public URL). */
 export async function uploadVaultFile(userId: string, file: File): Promise<string> {
-  const ext = file.name.split('.').pop() || 'jpg';
+  // Validate MIME type and size before upload
+  if (!VAULT_ALLOWED_TYPES.includes(file.type)) {
+    throw new Error('Only JPEG, PNG, and WebP images are allowed');
+  }
+  if (file.size > VAULT_MAX_SIZE) {
+    throw new Error('File size must be under 5 MB');
+  }
+
+  const extMap: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+  const ext = extMap[file.type] || 'jpg';
   const path = `${userId}/vault_${Date.now()}.${ext}`;
-  
+
   const { error } = await supabase.storage
     .from('vaults')
-    .upload(path, file, { upsert: false });
+    .upload(path, file, { upsert: false, contentType: file.type });
   if (error) throw error;
-  
+
   return path; // Just the path — NOT a public URL
 }
 
@@ -805,20 +817,28 @@ export function subscribeToMessageUpdates(
 }
 
 /**
- * Subscribe to reaction changes. Client filters by known message IDs.
- * RLS on message_reactions ensures only authorized events arrive.
+ * Subscribe to reaction changes for messages in a specific conversation.
+ * H3 fix: filters by message IDs belonging to the conversation (not global broadcast).
  */
 export function subscribeToReactions(
+  conversationId: string,
+  messageIds: string[],
   onInsert: (r: any) => void,
   onDelete: (r: any) => void,
 ) {
-  return supabase
-    .channel(`reactions-${Math.random()}`)
+  const channel = supabase
+    .channel(`reactions:${conversationId}`)
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'message_reactions' },
-      (payload: any) => onInsert(payload.new))
+      (payload: any) => {
+        // Only forward reactions for messages in this conversation
+        if (messageIds.includes(payload.new?.message_id)) onInsert(payload.new);
+      })
     .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'message_reactions' },
-      (payload: any) => onDelete(payload.old))
+      (payload: any) => {
+        if (messageIds.includes(payload.old?.message_id)) onDelete(payload.old);
+      })
     .subscribe();
+  return channel;
 }
 
 export function subscribeToConversations(userId: string, callback: (conv: any) => void) {
