@@ -111,7 +111,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } else {
           setProfile(null);
         }
-        setLoading(false);
+        // Don't set loading = false here — getSession() above handles the
+        // initial load.  onAuthStateChange fires INITIAL_SESSION before
+        // getSession resolves, which can race with a null session and
+        // trigger the auth guard redirect to /login.
       }
     );
 
